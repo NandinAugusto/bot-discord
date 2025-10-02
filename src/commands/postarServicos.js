@@ -9,7 +9,6 @@ async function limparMensagensGuild(client, guild) {
 
         for (const [channelId, channel] of channels) {
             try {
-                // Verifica se o bot tem permissão para ler o histórico de mensagens
                 if (!channel.permissionsFor(guild.members.me)?.has(PermissionsBitField.Flags.ReadMessageHistory)) {
                     console.log(`⚠️ Bot sem permissão de leitura em ${channel.name}. Ignorando limpeza.`);
                     continue;
@@ -18,25 +17,24 @@ async function limparMensagensGuild(client, guild) {
                 const messages = await channel.messages.fetch({ limit: 50 });
                 const botMessages = messages.filter(msg => 
                     msg.author.id === client.user.id && 
-                    client.mensagensOficiais.has(msg.id) && // Apenas mensagens oficiais do bot
-                    msg.createdTimestamp < Date.now() - 30000 // Mensagens com mais de 30 segundos
+                    msg.createdTimestamp < Date.now() - 30000 
                 );
 
                 for (const [msgId, message] of botMessages) {
                     try {
                         await message.delete();
-                        client.mensagensOficiais.delete(msg.id); // Remove do controle de mensagens oficiais
+                        client.mensagensOficiais.delete(msgId); 
                         totalDeleted++;
                         await new Promise(resolve => setTimeout(resolve, 500));
                     } catch (error) {
-                        console.error(`❌ Erro ao deletar mensagem ${msg.id} em ${channel.name}:`, error.message);
+                        console.error(`❌ Erro ao deletar mensagem ${msgId} em ${channel.name}:`, error.message);
                     }
                 }
             } catch (error) {
                 console.error(`❌ Erro ao buscar mensagens no canal ${channel.name}:`, error.message);
             }
         }
-        console.log(`✅ ${totalDeleted} mensagens oficiais antigas removidas de ${guild.name}`);
+        console.log(`✅ ${totalDeleted} mensagens antigas removidas de ${guild.name}`);
     } catch (error) {
         console.error("❌ Erro geral na limpeza de mensagens:", error);
     }
@@ -94,13 +92,11 @@ async function postarServicosAutomatico(client, guild) {
 
         if (canal) {
             try {
-                // Limpa mensagens antigas do bot no canal antes de postar a nova
-                await limparMensagensGuild(client, guild); // Chama a função de limpeza
+                await limparMensagensGuild(client, guild); 
 
-                const mensagem = await canal.send({ embeds: [embed] });
+                const mensagem = await canal.send({ content: '@everyone', embeds: [embed] });
                 await mensagem.react("🛒");
 
-                // FIXA A MENSAGEM AUTOMATICAMENTE
                 try {
                     await mensagem.pin();
                     console.log(`📌 Mensagem fixada em: ${canal.name}`);
@@ -108,7 +104,6 @@ async function postarServicosAutomatico(client, guild) {
                     console.error(`❌ Erro ao fixar mensagem em ${canal.name}:`, pinError.message);
                 }
 
-                // REGISTRA COMO MENSAGEM OFICIAL
                 client.mensagensOficiais.add(mensagem.id);
                 console.log(`✅ Mensagem oficial registrada: ${mensagem.id} em ${canal.name}`);
 
