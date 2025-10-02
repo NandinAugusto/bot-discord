@@ -43,6 +43,9 @@ async function limparMensagensGuild(client, guild) {
 async function postarServicosAutomatico(client, guild) {
     console.log(`📢 Postando serviços em: ${guild.name}`);
 
+    // ✅ LIMPAR APENAS UMA VEZ, ANTES DO LOOP
+    await limparMensagensGuild(client, guild);
+
     const embed = new EmbedBuilder()
         .setTitle("🎮 SERVIÇOS GAMING v2.2 (Orpheus/Evellyn)")
         .setDescription(
@@ -92,8 +95,6 @@ async function postarServicosAutomatico(client, guild) {
 
         if (canal) {
             try {
-                await limparMensagensGuild(client, guild); 
-
                 const mensagem = await canal.send({ content: '@everyone', embeds: [embed] });
                 await mensagem.react("🛒");
 
