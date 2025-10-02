@@ -200,24 +200,39 @@ const threadsAtivas = new Map(); // userId -> threadId (impede múltiplas thread
 const mensagensOficiais = new Set(); // IDs das mensagens oficiais do bot
 
 // ================================================
-// 🔍 FUNÇÕES UTILITÁRIAS
+// 🔍 FUNÇÕES UTILITÁRIAS CORRIGIDAS
 // ================================================
 
 function isHellzaAdmin(member) {
+    if (!member || !member.roles || !member.roles.cache) return false;
     return member.roles.cache.some(role =>
         role.name.toLowerCase() === CARGO_ADMIN_PRINCIPAL.toLowerCase()
     );
 }
 
 function isSuporteAdmin(member) {
+    if (!member || !member.roles || !member.roles.cache) return false;
     return member.roles.cache.some(role =>
         CARGOS_SUPORTE.some(cargo => role.name.toLowerCase().includes(cargo.toLowerCase()))
     );
 }
 
-// 🔧 NOVA FUNÇÃO: Verifica se é qualquer tipo de admin
+// 🔧 FUNÇÃO CORRIGIDA: Verifica se é qualquer tipo de admin
 function isQualquerAdmin(member) {
+    if (!member) return false;
     return isHellzaAdmin(member) || isSuporteAdmin(member);
+}
+
+// 🔒 FUNÇÃO ESPECIAL: Verifica se é admin na guild específica
+function isAdminNaGuild(userId, guild) {
+    try {
+        const member = guild.members.cache.get(userId);
+        if (!member) return false;
+        return isQualquerAdmin(member);
+    } catch (error) {
+        console.error(`❌ Erro ao verificar admin ${userId}:`, error);
+        return false;
+    }
 }
 
 function getProximoNumeroThread(userId) {
@@ -637,15 +652,10 @@ function criarPagamentoEmbed(userId, user) {
                 name: '🔄 Próximo Passo', 
                 value: 'Aguardando comprovante e confirmação administrativa Hellza.',
                 inline: false 
-            },
-            {
-                name: '👑 Para Administradores',
-                value: '**Apenas admins podem ver e clicar no botão de finalização abaixo.**',
-                inline: false
             }
         ])
         .setColor(0x32CD32)
-        .setFooter({ text: '⚠️ Thread única • Aguardando Hellza • NÃO usamos hack/cheats' })
+        .setFooter({ text: '⚠️ Thread única • Aguardando Admin • Botão exclusivo para Administradores' })
         .setTimestamp();
 }
 
@@ -671,13 +681,13 @@ function criarBotoesCarrinho() {
         );
 }
 
-// 🔧 CORRIGIDO: Função que cria botão apenas para admins
+// 🔒 FUNÇÃO 100% SEGURA: Cria botão admin apenas para admins
 function criarBotaoAdminFinalizar(threadId) {
     return new ActionRowBuilder()
         .addComponents(
             new ButtonBuilder()
                 .setCustomId(`admin_finalizar_${threadId}`)
-                .setLabel('👑 FINALIZAR SERVIÇO (ADMIN)')
+                .setLabel('👑 FINALIZAR SERVIÇO')
                 .setStyle(ButtonStyle.Danger)
                 .setEmoji('✅')
         );
@@ -854,7 +864,7 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
             await thread.members.add(user.id);
             console.log(`👤 ${user.tag} adicionado à thread ${numeroThread}`);
 
-            // ✅ CORRIGIDO: Adiciona TODOS os tipos de admins
+            // ✅ ADICIONA TODOS OS TIPOS DE ADMINS
             let hellzaAdmins = 0;
             let suporteAdmins = 0;
 
@@ -887,7 +897,7 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
                 }
             }
 
-            // ✅ CORRIGIDO: Adiciona cargos de suporte melhorados
+            // ✅ ADICIONA CARGOS DE SUPORTE
             const allMembers = guild.members.cache;
             for (const [memberId, supportMember] of allMembers) {
                 if (supportMember.user.bot) continue;
@@ -904,7 +914,7 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
                         const cargoEncontrado = supportMember.roles.cache.find(role =>
                             CARGOS_SUPORTE.some(cargo => role.name.toLowerCase().includes(cargo.toLowerCase()))
                         );
-                        console.log(`👥 Suporte ${supportMember.user.tag} adicionado (cargo: ${cargoEncontrado.name})`);
+                        console.log(`👥 Suporte ${supportMember.user.tag} adicionado (cargo: ${cargoEncontrado?.name || 'desconhecido'})`);
                         suporteAdmins++;
                         await new Promise(resolve => setTimeout(resolve, 300));
                     } catch (error) {
@@ -1006,7 +1016,7 @@ client.on(Events.ThreadUpdate, (oldThread, newThread) => {
 });
 
 // ================================================
-// 🎛️ EVENT: INTERAÇÕES
+// 🎛️ EVENT: INTERAÇÕES - 100% SEGURO
 // ================================================
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -1019,11 +1029,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const threadId = thread?.id;
 
     try {
+        // ✅ VALIDAÇÃO EXTRA: Verifica se membro existe
+        if (!member) {
+            console.error(`❌ Member não encontrado para ${user.tag}`);
+            return;
+        }
+
         // Verifica se a thread foi finalizada
         if (isThreadFinalizada(threadId) && !isQualquerAdmin(member)) {
             await interaction.reply({
                 content: '🔒 **Thread Finalizada pela Administração**\n\nEsta thread foi finalizada por um administrador Hellza. Apenas a equipe administrativa pode interagir aqui.\n\n✅ **Para novos serviços:** Volte ao canal público e reaja 🛒 na mensagem fixada oficial.',
-                ephemeral: true
+                flags: [4096] // EPHEMERAL
             });
             return;
         }
@@ -1034,7 +1050,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
             const servico = servicos[servicoId];
 
             if (!servico) {
-                await interaction.reply({ content: 'Serviço não encontrado.', ephemeral: true });
+                await interaction.reply({ 
+                    content: 'Serviço não encontrado.', 
+                    flags: [4096] // EPHEMERAL
+                });
                 return;
             }
 
@@ -1045,7 +1064,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 await interaction.reply({
                     content: `📦 **${servico.nome}** já está no seu carrinho. Escolha a nova quantidade:`,
                     components: [criarDropdownQuantidade(servicoId)],
-                    ephemeral: true
+                    flags: [4096] // EPHEMERAL
                 });
             } else {
                 adicionarItem(userId, servicoId, 1);
@@ -1061,7 +1080,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 await interaction.followUp({
                     content: `✅ **${servico.nome}** adicionado ao carrinho. Deseja adicionar mais unidades?`,
                     components: [criarDropdownQuantidade(servicoId)],
-                    ephemeral: true
+                    flags: [4096] // EPHEMERAL
                 });
             }
         }
@@ -1073,7 +1092,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
             const servico = servicos[servicoId];
 
             if (!servico) {
-                await interaction.reply({ content: 'Serviço não encontrado.', ephemeral: true });
+                await interaction.reply({ 
+                    content: 'Serviço não encontrado.', 
+                    flags: [4096] // EPHEMERAL
+                });
                 return;
             }
 
@@ -1089,7 +1111,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 components: [dropdown, buttons]
             });
 
-            await interaction.followUp({ content: `📦 Quantidade de **${servico.nome}** atualizada para **${quantidade}x**.`, ephemeral: true });
+            await interaction.followUp({ 
+                content: `📦 Quantidade de **${servico.nome}** atualizada para **${quantidade}x**.`, 
+                flags: [4096] // EPHEMERAL
+            });
         }
 
         // Lógica para botões do carrinho
@@ -1107,7 +1132,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (interaction.customId === 'remover_item') {
             const carrinho = getCarrinho(userId);
             if (carrinho.items.length === 0) {
-                await interaction.reply({ content: 'Seu carrinho já está vazio!', ephemeral: true });
+                await interaction.reply({ 
+                    content: 'Seu carrinho já está vazio!', 
+                    flags: [4096] // EPHEMERAL
+                });
                 return;
             }
 
@@ -1115,7 +1143,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             await interaction.reply({
                 content: '🗑️ Escolha qual item deseja remover:',
                 components: [dropdownRemover],
-                ephemeral: true
+                flags: [4096] // EPHEMERAL
             });
         }
 
@@ -1133,7 +1161,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 components: [dropdown, buttons]
             });
 
-            await interaction.followUp({ content: `🗑️ **${servico.nome}** removido do carrinho.`, ephemeral: true });
+            await interaction.followUp({ 
+                content: `🗑️ **${servico.nome}** removido do carrinho.`, 
+                flags: [4096] // EPHEMERAL
+            });
         }
 
         if (interaction.customId === 'limpar_carrinho') {
@@ -1148,13 +1179,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 components: [dropdown, buttons]
             });
 
-            await interaction.followUp({ content: '🧹 Seu carrinho foi limpo!', ephemeral: true });
+            await interaction.followUp({ 
+                content: '🧹 Seu carrinho foi limpo!', 
+                flags: [4096] // EPHEMERAL
+            });
         }
 
         if (interaction.customId === 'finalizar_pedido') {
             const carrinho = getCarrinho(userId);
             if (carrinho.items.length === 0) {
-                await interaction.reply({ content: 'Seu carrinho está vazio. Adicione itens antes de finalizar!', ephemeral: true });
+                await interaction.reply({ 
+                    content: 'Seu carrinho está vazio. Adicione itens antes de finalizar!', 
+                    flags: [4096] // EPHEMERAL
+                });
                 return;
             }
 
@@ -1180,7 +1217,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 }
             }
 
-            await thread.send(`✅ ${user}, seu pedido foi finalizado! A equipe Hellza já foi notificada e aguarda seu comprovante de PIX.\n\n🚨 **IMPORTANTE:** Apenas administradores podem clicar no botão vermelho acima para finalizar o serviço.`);
+            await thread.send(`✅ ${user}, seu pedido foi finalizado! A equipe Hellza já foi notificada e aguarda seu comprovante de PIX.\n\n🚨 **IMPORTANTE:** O botão vermelho acima é **exclusivo para administradores**. Apenas admins podem finalizar o serviço.`);
 
             // Envia notificação para os admins
             const adminChannel = interaction.guild.channels.cache.find(c => c.name.toLowerCase().includes('logs') || c.name.toLowerCase().includes('admin'));
@@ -1190,20 +1227,45 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
 
         // ================================================
-        // 🔧 BOTÃO ADMIN COM LOG DOS SERVIÇOS FINALIZADOS
+        // 🔒 BOTÃO ADMIN - VALIDAÇÃO TRIPLA DE SEGURANÇA
         // ================================================
         if (interaction.customId.startsWith('admin_finalizar_')) {
-            // 🛡️ VERIFICAÇÃO RIGOROSA DE ADMIN
-            if (!isQualquerAdmin(member)) {
-                console.log(`🚫 ${user.tag} tentou finalizar sem ser admin`);
+            console.log(`🔍 Tentativa de finalização: ${user.tag} (${userId}) na guild ${interaction.guild?.name}`);
+
+            // 🛡️ VALIDAÇÃO 1: Membro existe?
+            if (!member) {
+                console.log(`🚫 FALHA 1: Member inexistente para ${user.tag}`);
                 await interaction.reply({ 
-                    content: '🚫 **Acesso Negado!**\n\nApenas administradores podem finalizar serviços.\n\n👑 **Cargos autorizados:** Hellza, Admin, Moderador, Staff, Suporte.', 
-                    ephemeral: true 
+                    content: '❌ **Erro de Autenticação**\nMembro não encontrado no servidor.', 
+                    flags: [4096] // EPHEMERAL
                 });
                 return;
             }
 
-            console.log(`👑 Admin ${user.tag} finalizando serviço na thread ${threadId}`);
+            // 🛡️ VALIDAÇÃO 2: É admin na guild?
+            const isAdmin = isAdminNaGuild(userId, interaction.guild);
+            if (!isAdmin) {
+                console.log(`🚫 FALHA 2: ${user.tag} não é admin na guild ${interaction.guild?.name}`);
+                await interaction.reply({ 
+                    content: '🚫 **ACESSO NEGADO!**\n\n❌ Você não tem permissão para finalizar serviços.\n\n👑 **Cargos autorizados:** Hellza, Admin, Moderador, Staff, Suporte.\n\n⚠️ **Tentativa de acesso não autorizada registrada.**', 
+                    flags: [4096] // EPHEMERAL
+                });
+                return;
+            }
+
+            // 🛡️ VALIDAÇÃO 3: Admin confirmado
+            const adminConfirmado = isQualquerAdmin(member);
+            if (!adminConfirmado) {
+                console.log(`🚫 FALHA 3: Validação final falhou para ${user.tag}`);
+                await interaction.reply({ 
+                    content: '🚫 **VALIDAÇÃO FINAL FALHOU**\n\nVerifique seus cargos com um administrador superior.', 
+                    flags: [4096] // EPHEMERAL
+                });
+                return;
+            }
+
+            // ✅ TODAS AS VALIDAÇÕES PASSARAM
+            console.log(`✅ VALIDAÇÃO COMPLETA: Admin ${user.tag} autorizado a finalizar serviço`);
 
             // 1️⃣ RESPONDER PRIMEIRO (thread ainda ativa)
             await interaction.update({
@@ -1212,7 +1274,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 components: []
             });
 
-            // 2️⃣ AÇÕES APÓS RESPOSTA (sem interagir mais)
+            // 2️⃣ AÇÕES APÓS RESPOSTA
             try {
                 // Busca o cliente (não bot, não admin)
                 const clienteMember = thread.guild.members.cache.find(m => 
@@ -1240,7 +1302,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     }
 
                     if (cargoEmAndamento && clienteMember.roles.cache.has(cargoEmAndamento.id)) {
-                        await cargoEmAndamento.roles.remove(cargoEmAndamento);
+                        await clienteMember.roles.remove(cargoEmAndamento);
                         console.log(`[Cargo] Removido '${CARGO_SERVICO_EM_ANDAMENTO}' de ${clienteMember.user.tag}`);
                     }
 
@@ -1315,9 +1377,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
         console.error(`❌ Erro na interação ${interaction.customId} por ${user.tag}:`, error);
         try {
             if (interaction.deferred || interaction.replied) {
-                await interaction.followUp({ content: 'Ocorreu um erro ao processar sua solicitação.', ephemeral: true });
+                await interaction.followUp({ 
+                    content: '❌ Ocorreu um erro ao processar sua solicitação.', 
+                    flags: [4096] // EPHEMERAL
+                });
             } else {
-                await interaction.reply({ content: 'Ocorreu um erro ao processar sua solicitação.', ephemeral: true });
+                await interaction.reply({ 
+                    content: '❌ Ocorreu um erro ao processar sua solicitação.', 
+                    flags: [4096] // EPHEMERAL
+                });
             }
         } catch (replyError) {
             console.error(`❌ Erro ao responder interação:`, replyError.message);
