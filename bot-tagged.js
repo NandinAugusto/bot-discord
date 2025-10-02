@@ -1,27 +1,8 @@
 const { Client, GatewayIntentBits, Events, EmbedBuilder, PermissionsBitField, Partials, ChannelType, ThreadAutoArchiveDuration, ButtonBuilder, ButtonStyle, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
 
-// Configuração do bot
-const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMessageReactions,
-        GatewayIntentBits.DirectMessages
-    ],
-    partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User]
-});
-
-// 🛒 SISTEMA DE CARRINHO
-const carrinhos = new Map();
-
-// 📊 SISTEMA DE NUMERAÇÃO SEQUENCIAL
-const contadorThreads = new Map();
-
-// 🔒 CONTROLE DE ACESSO E THREADS ATIVAS
-const threadsFinalizadas = new Map();
-const threadsAtivas = new Map(); // userId -> threadId (impede múltiplas threads)
-const mensagensOficiais = new Set(); // IDs das mensagens oficiais do bot
+// ================================================
+// 🌍 CONFIGURAÇÕES VIA VARIÁVEIS DE AMBIENTE
+// ================================================
 
 // 💳 CONFIGURAÇÃO PIX - USANDO VARIÁVEIS DE AMBIENTE
 const PIX_CONFIG = {
@@ -51,6 +32,10 @@ const CARGOS_SUPORTE = process.env.CARGOS_SUPORTE ?
         'vendas',
         'atendimento'
     ];
+
+// 🏷️ CARGOS ESPECIAIS - USANDO VARIÁVEIS DE AMBIENTE
+const CARGO_CLIENTE_COMPROU = process.env.CARGO_CLIENTE_COMPROU || 'Já comprou';
+const CARGO_SERVICO_EM_ANDAMENTO = process.env.CARGO_SERVICO_EM_ANDAMENTO || 'Serviço em Andamento';
 
 // 🎮 SERVIÇOS - COM PREÇOS CONFIGURÁVEIS POR VARIÁVEIS DE AMBIENTE
 const servicos = {
@@ -184,7 +169,37 @@ const servicos = {
     }
 };
 
+// ================================================
+// 🔧 CONFIGURAÇÃO DO BOT
+// ================================================
+
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMessageReactions,
+        GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.GuildMembers
+    ],
+    partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User]
+});
+
+// 🛒 SISTEMA DE CARRINHO
+const carrinhos = new Map();
+
+// 📊 SISTEMA DE NUMERAÇÃO SEQUENCIAL
+const contadorThreads = new Map();
+
+// 🔒 CONTROLE DE ACESSO E THREADS ATIVAS
+const threadsFinalizadas = new Map();
+const threadsAtivas = new Map(); // userId -> threadId (impede múltiplas threads)
+const mensagensOficiais = new Set(); // IDs das mensagens oficiais do bot
+
+// ================================================
 // 🔍 FUNÇÕES UTILITÁRIAS
+// ================================================
+
 function isHellzaAdmin(member) {
     return member.roles.cache.some(role =>
         role.name.toLowerCase() === CARGO_ADMIN_PRINCIPAL.toLowerCase()
@@ -238,9 +253,12 @@ function removerThreadAtiva(userId) {
     console.log(`🔓 Thread ativa removida para ${userId}`);
 }
 
-// 🧹 LIMPEZA
+// ================================================
+// 🧹 FUNÇÕES DE LIMPEZA
+// ================================================
+
 async function limparMensagensGuild(guild) {
-    console.log(`🧹 Limpando servidor: ${guild.name}`);
+    console.log(`🧹 Limpando mensagens antigas no servidor: ${guild.name}`);
     try {
         const channels = guild.channels.cache.filter(c => c.isTextBased() && !c.isThread());
         let totalDeleted = 0;
@@ -248,6 +266,7 @@ async function limparMensagensGuild(guild) {
         for (const [channelId, channel] of channels) {
             try {
                 if (!channel.permissionsFor(guild.members.me)?.has(PermissionsBitField.Flags.ReadMessageHistory)) {
+                    console.log(`⚠️ Bot sem permissão de leitura em ${channel.name}. Ignorando limpeza.`);
                     continue;
                 }
 
@@ -260,59 +279,32 @@ async function limparMensagensGuild(guild) {
                 for (const [msgId, message] of botMessages) {
                     try {
                         await message.delete();
+                        mensagensOficiais.delete(msgId);
                         totalDeleted++;
                         await new Promise(resolve => setTimeout(resolve, 500));
                     } catch (error) {
-                        // Ignora erros
+                        console.error(`❌ Erro ao deletar mensagem ${msgId} em ${channel.name}:`, error.message);
                     }
                 }
             } catch (error) {
-                console.error(`❌ Erro no canal ${channel.name}:`, error.message);
+                console.error(`❌ Erro ao buscar mensagens no canal ${channel.name}:`, error.message);
             }
         }
         console.log(`✅ ${totalDeleted} mensagens antigas removidas de ${guild.name}`);
     } catch (error) {
-        console.error('❌ Erro na limpeza:', error);
+        console.error('❌ Erro geral na limpeza de mensagens:', error);
     }
 }
 
-async function limparThread(thread, excludeLastN = 0) {
-    console.log(`🧹 Limpando thread: ${thread.name}`);
-    try {
-        let totalDeleted = 0;
-        let hasMore = true;
-
-        while (hasMore) {
-            const messages = await thread.messages.fetch({ limit: 100 });
-            if (messages.size === 0) break;
-
-            const messagesToDelete = Array.from(messages.values())
-                .slice(excludeLastN)
-                .filter(msg => msg.deletable);
-
-            if (messagesToDelete.length === 0) break;
-
-            for (const message of messagesToDelete) {
-                try {
-                    await message.delete();
-                    totalDeleted++;
-                    await new Promise(resolve => setTimeout(resolve, 300));
-                } catch (error) {
-                    // Ignora erros
-                }
-            }
-
-            if (messagesToDelete.length < 100) break;
-        }
-        console.log(`✅ ${totalDeleted} mensagens removidas da thread ${thread.name}`);
-    } catch (error) {
-        console.error('❌ Erro ao limpar thread:', error);
-    }
-}
-
+// ================================================
 // 📢 POSTAGEM AUTOMÁTICA
+// ================================================
+
 async function postarServicosAutomatico(guild) {
     console.log(`📢 Postando serviços em: ${guild.name}`);
+
+    // LIMPAR APENAS UMA VEZ, ANTES DO LOOP
+    await limparMensagensGuild(guild);
 
     const embed = new EmbedBuilder()
         .setTitle('🎮 SERVIÇOS GAMING v2.2 (Orpheus/Evellyn)')
@@ -363,7 +355,7 @@ async function postarServicosAutomatico(guild) {
 
         if (canal) {
             try {
-                const mensagem = await canal.send({ embeds: [embed] });
+                const mensagem = await canal.send({ content: '@everyone', embeds: [embed] });
                 await mensagem.react('🛒');
 
                 // FIXA A MENSAGEM AUTOMATICAMENTE
@@ -388,34 +380,10 @@ async function postarServicosAutomatico(guild) {
     }
 }
 
-// Event: Bot conectado
-client.once(Events.ClientReady, async () => {
-    console.log(`🤖 Bot ANTI-DUPLICAÇÃO online: ${client.user.tag}!`);
-    console.log(`👑 Cargo principal: ${CARGO_ADMIN_PRINCIPAL}`);
-    console.log(`📊 ${Object.keys(servicos).length} serviços configurados`);
-    console.log(`🔒 Sistema anti-duplicação ativo`);
-
-    client.user.setActivity('🛒 Sistema Único v2.2', { type: 'PLAYING' });
-
-    setTimeout(async () => {
-        console.log('🧹 Iniciando configuração automática...');
-
-        for (const [guildId, guild] of client.guilds.cache) {
-            try {
-                await limparMensagensGuild(guild);
-                await new Promise(resolve => setTimeout(resolve, 3000));
-                await postarServicosAutomatico(guild);
-                console.log(`✅ Servidor ${guild.name} configurado com mensagens fixadas!`);
-            } catch (error) {
-                console.error(`❌ Erro no servidor ${guild.name}:`, error);
-            }
-        }
-
-        console.log('🚀 Sistema anti-duplicação totalmente ativo!');
-    }, 5000);
-});
-
+// ================================================
 // 🛒 FUNÇÕES DO CARRINHO
+// ================================================
+
 function getCarrinho(userId) {
     if (!carrinhos.has(userId)) {
         carrinhos.set(userId, { items: [], total: 0 });
@@ -460,7 +428,10 @@ function limparCarrinho(userId) {
     carrinhos.set(userId, { items: [], total: 0 });
 }
 
+// ================================================
 // 🎮 INTERFACES
+// ================================================
+
 function criarDropdownServicos() {
     const servicosArray = Object.values(servicos).slice(0, 25);
 
@@ -537,7 +508,7 @@ function criarCarrinhoEmbed(userId, user) {
         .setTimestamp();
 }
 
-function criarPagamentoEmbed(userId, user, threadId) {
+function criarPagamentoEmbed(userId, user) {
     const carrinho = getCarrinho(userId);
 
     const resumoDetalhado = carrinho.items.map((item, index) => 
@@ -637,7 +608,38 @@ function criarDropdownRemover(userId) {
     return new ActionRowBuilder().addComponents(selectMenu);
 }
 
-// Event: Reações com CONTROLE ANTI-DUPLICAÇÃO
+// ================================================
+// 🌟 EVENT: BOT CONECTADO
+// ================================================
+
+client.once(Events.ClientReady, async () => {
+    console.log(`🤖 Bot ANTI-DUPLICAÇÃO online: ${client.user.tag}!`);
+    console.log(`👑 Cargo principal: ${CARGO_ADMIN_PRINCIPAL}`);
+    console.log(`📊 ${Object.keys(servicos).length} serviços configurados`);
+    console.log(`🔒 Sistema anti-duplicação ativo`);
+
+    client.user.setActivity('🛒 Sistema Único v2.2', { type: 'PLAYING' });
+
+    setTimeout(async () => {
+        console.log('🧹 Iniciando configuração automática...');
+
+        for (const [guildId, guild] of client.guilds.cache) {
+            try {
+                await postarServicosAutomatico(guild);
+                console.log(`✅ Servidor ${guild.name} configurado com mensagens fixadas!`);
+            } catch (error) {
+                console.error(`❌ Erro ao configurar o servidor ${guild.name}:`, error);
+            }
+        }
+
+        console.log('🚀 Sistema anti-duplicação totalmente ativo!');
+    }, 5000);
+});
+
+// ================================================
+// 🛒 EVENT: REAÇÕES COM CONTROLE ANTI-DUPLICAÇÃO
+// ================================================
+
 client.on(Events.MessageReactionAdd, async (reaction, user) => {
     if (user.bot) return;
 
@@ -645,79 +647,76 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
         try {
             await reaction.fetch();
         } catch (error) {
+            console.error('Erro ao buscar reação parcial:', error);
             return;
         }
     }
 
     if (reaction.emoji.name === '🛒') {
-        try {
-            // 🚨 VERIFICA SE É MENSAGEM OFICIAL DO BOT
-            if (!mensagensOficiais.has(reaction.message.id)) {
-                console.log(`🚫 Reação em mensagem não oficial ignorada: ${reaction.message.id} por ${user.tag}`);
-                await reaction.users.remove(user.id);
+        // 🚨 VERIFICA SE É MENSAGEM OFICIAL DO BOT
+        if (!mensagensOficiais.has(reaction.message.id)) {
+            console.log(`🚫 Reação em mensagem não oficial ignorada: ${reaction.message.id} por ${user.tag}`);
+            await reaction.users.remove(user.id);
 
-                // Avisa o usuário
-                try {
-                    await user.send(
-                        `🚫 **Atenção ${user.displayName}!**\n\n` +
-                        `Você reagiu com 🛒 em uma mensagem não oficial.\n\n` +
-                        `✅ **Para criar sua loja privada:**\n` +
-                        `• Reaja 🛒 apenas nas **mensagens fixadas** do bot\n` +
-                        `• Procure por mensagens com título "SERVIÇOS GAMING v2.2"\n` +
-                        `• São as mensagens **oficiais** e **fixadas** nos canais\n\n` +
-                        `🔍 Volte aos canais e procure pela mensagem oficial fixada!`
-                    );
-                } catch (dmError) {
-                    console.log(`❌ Não foi possível enviar DM para ${user.tag}`);
-                }
-
-                return;
+            try {
+                await user.send(
+                    `🚫 **Atenção ${user.displayName}!**\n\n` +
+                    `Você reagiu com 🛒 em uma mensagem não oficial.\n\n` +
+                    `✅ **Para criar sua loja privada:**\n` +
+                    `• Reaja 🛒 apenas nas **mensagens fixadas** do bot\n` +
+                    `• Procure por mensagens com título "SERVIÇOS GAMING v2.2"\n` +
+                    `• São as mensagens **oficiais** e **fixadas** nos canais\n\n` +
+                    `🔍 Volte aos canais e procure pela mensagem oficial fixada!`
+                );
+            } catch (dmError) {
+                console.log(`❌ Não foi possível enviar DM para ${user.tag}:`, dmError.message);
             }
 
-            // 🚨 VERIFICA SE JÁ TEM THREAD ATIVA
-            if (temThreadAtiva(user.id)) {
-                const threadAtivaId = getThreadAtiva(user.id);
-                const guild = reaction.message.guild;
-                const threadAtiva = guild.channels.cache.get(threadAtivaId);
+            return;
+        }
 
-                console.log(`🚫 ${user.tag} tentou criar nova thread tendo uma ativa: ${threadAtivaId}`);
-
-                await reaction.users.remove(user.id);
-
-                let mensagemAviso = `🚫 **${user.displayName}, você já tem uma thread ativa!**\n\n`;
-
-                if (threadAtiva && !threadAtiva.archived) {
-                    mensagemAviso += `📍 **Sua thread ativa:** ${threadAtiva.name}\n`;
-                    mensagemAviso += `🔗 Acesse sua thread existente para continuar suas compras.\n\n`;
-                } else {
-                    // Thread foi removida/arquivada, limpa o controle
-                    removerThreadAtiva(user.id);
-                    mensagemAviso += `🔄 **Thread anterior não encontrada.** Tente reagir novamente.\n\n`;
-                }
-
-                mensagemAviso += `⚠️ **Regra:** Apenas 1 thread por cliente.\n`;
-                mensagemAviso += `✅ **Aguarde a finalização** pela equipe Hellza antes de criar nova thread.`;
-
-                try {
-                    await user.send(mensagemAviso);
-                } catch (dmError) {
-                    const confirmMsg = await reaction.message.channel.send(
-                        `🚫 ${user}, você já tem uma thread ativa! Finalize-a antes de criar outra.`
-                    );
-                    setTimeout(() => confirmMsg.delete().catch(() => {}), 10000);
-                }
-
-                return;
-            }
-
+        // 🚨 VERIFICA SE JÁ TEM THREAD ATIVA
+        if (temThreadAtiva(user.id)) {
+            const threadAtivaId = getThreadAtiva(user.id);
             const guild = reaction.message.guild;
+            const threadAtiva = guild.channels.cache.get(threadAtivaId);
 
-            // Gera número sequencial
-            const numeroThread = getProximoNumeroThread(user.id);
-            const nomeThread = `🛒-loja-${user.username}-${numeroThread}`;
+            console.log(`🚫 ${user.tag} tentou criar nova thread tendo uma ativa: ${threadAtivaId}`);
 
-            console.log(`🔢 Criando thread ${numeroThread} para ${user.tag}: ${nomeThread}`);
+            await reaction.users.remove(user.id);
 
+            let mensagemAviso = `🚫 **${user.displayName}, você já tem uma thread ativa!**\n\n`;
+
+            if (threadAtiva && !threadAtiva.archived) {
+                mensagemAviso += `📍 **Sua thread ativa:** ${threadAtiva.name}\n`;
+                mensagemAviso += `🔗 Acesse sua thread existente para continuar suas compras.\n\n`;
+            } else {
+                removerThreadAtiva(user.id);
+                mensagemAviso += `🔄 **Thread anterior não encontrada.** Tente reagir novamente.\n\n`;
+            }
+
+            mensagemAviso += `⚠️ **Regra:** Apenas 1 thread por cliente.\n`;
+            mensagemAviso += `✅ **Aguarde a finalização** pela equipe Hellza antes de criar nova thread.`;
+
+            try {
+                await user.send(mensagemAviso);
+            } catch (dmError) {
+                const confirmMsg = await reaction.message.channel.send(
+                    `🚫 ${user}, você já tem uma thread ativa! Finalize-a antes de criar outra.`
+                );
+                setTimeout(() => confirmMsg.delete().catch(() => {}), 10000);
+            }
+
+            return;
+        }
+
+        const guild = reaction.message.guild;
+        const numeroThread = getProximoNumeroThread(user.id);
+        const nomeThread = `🛒-loja-${user.username}-${numeroThread}`;
+
+        console.log(`🔢 Criando thread ${numeroThread} para ${user.tag}: ${nomeThread}`);
+
+        try {
             const thread = await reaction.message.channel.threads.create({
                 name: nomeThread,
                 type: ChannelType.PrivateThread,
@@ -726,13 +725,11 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
                 invitable: false
             });
 
-            // MARCA THREAD COMO ATIVA PARA O USUÁRIO
             marcarThreadAtiva(user.id, thread.id);
-
             await thread.members.add(user.id);
             console.log(`👤 ${user.tag} adicionado à thread ${numeroThread}`);
 
-            // Adiciona cargo Hellza
+            // Adiciona admins Hellza
             let hellzaAdmins = 0;
             const hellzaRole = guild.roles.cache.find(role => 
                 role.name.toLowerCase() === CARGO_ADMIN_PRINCIPAL.toLowerCase()
@@ -832,16 +829,25 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
             setTimeout(() => confirmMsg.delete().catch(() => {}), 12000);
 
         } catch (error) {
-            console.error(`❌ Erro crítico para ${user.tag}:`, error);
-            // Remove da lista de threads ativas se houve erro
+            console.error(`❌ Erro crítico ao criar thread para ${user.tag}:`, error);
             removerThreadAtiva(user.id);
+
+            try {
+                await user.send(
+                    `❌ **Ocorreu um erro ao criar sua loja privada.** Por favor, tente novamente mais tarde ou contate um administrador.`
+                );
+            } catch (dmError) {
+                console.error(`❌ Não foi possível enviar DM de erro para ${user.tag}:`, dmError.message);
+            }
         }
     }
 });
 
-// Event: Thread deletada/arquivada - Remove do controle
+// ================================================
+// 🗑️ EVENT: THREAD DELETADA/ARQUIVADA
+// ================================================
+
 client.on(Events.ThreadDelete, (thread) => {
-    // Remove thread do controle quando é deletada
     for (const [userId, threadId] of threadsAtivas.entries()) {
         if (threadId === thread.id) {
             removerThreadAtiva(userId);
@@ -852,7 +858,6 @@ client.on(Events.ThreadDelete, (thread) => {
 });
 
 client.on(Events.ThreadUpdate, (oldThread, newThread) => {
-    // Remove thread do controle quando é arquivada
     if (newThread.archived && !oldThread.archived) {
         for (const [userId, threadId] of threadsAtivas.entries()) {
             if (threadId === newThread.id) {
@@ -864,14 +869,18 @@ client.on(Events.ThreadUpdate, (oldThread, newThread) => {
     }
 });
 
-// Event: Interações
+// ================================================
+// 🎛️ EVENT: INTERAÇÕES
+// ================================================
+
 client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isStringSelectMenu() && !interaction.isButton()) return;
 
     const userId = interaction.user.id;
     const user = interaction.user;
     const member = interaction.member;
-    const threadId = interaction.channel?.id;
+    const thread = interaction.channel;
+    const threadId = thread?.id;
 
     try {
         // Verifica se a thread foi finalizada
@@ -883,249 +892,253 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return;
         }
 
+        // Lógica para seleção de serviço (dropdown)
         if (interaction.customId === 'select_servico') {
             const servicoId = interaction.values[0];
             const servico = servicos[servicoId];
 
             if (!servico) {
-                await interaction.reply({ content: '❌ Serviço não encontrado.', ephemeral: true });
+                await interaction.reply({ content: 'Serviço não encontrado.', ephemeral: true });
                 return;
             }
 
-            const quantidadeDropdown = criarDropdownQuantidade(servicoId);
+            const carrinho = getCarrinho(userId);
+            const itemExistente = carrinho.items.find(item => item.id === servicoId);
 
-            await interaction.reply({
-                content: `**${servico.emoji} ${servico.nome}**\nPreço unitário: R$ ${servico.preco.toFixed(2).replace('.', ',')}\n\n**Escolha quantas unidades quer:**`,
-                components: [quantidadeDropdown],
-                ephemeral: true
-            });
-
-        } else if (interaction.customId === 'select_quantidade') {
-            const [servicoId, quantidade] = interaction.values[0].split('_');
-            const servico = servicos[servicoId];
-            const qtd = parseInt(quantidade);
-
-            const sucesso = adicionarItem(userId, servicoId, qtd);
-
-            if (sucesso) {
-                const carrinho = criarCarrinhoEmbed(userId, user);
+            if (itemExistente) {
+                await interaction.reply({
+                    content: `📦 **${servico.nome}** já está no seu carrinho. Escolha a nova quantidade:`,
+                    components: [criarDropdownQuantidade(servicoId)],
+                    ephemeral: true
+                });
+            } else {
+                adicionarItem(userId, servicoId, 1);
+                const carrinhoEmbed = criarCarrinhoEmbed(userId, user);
                 const dropdown = criarDropdownServicos();
                 const buttons = criarBotoesCarrinho();
 
-                const channel = interaction.channel;
-                const messages = await channel.messages.fetch({ limit: 5 });
-                const carrinhoMessage = messages.find(msg => 
-                    msg.author.id === client.user.id && 
-                    msg.embeds.length > 0 && 
-                    msg.embeds[0].title?.includes('Carrinho')
-                );
-
-                if (carrinhoMessage) {
-                    await carrinhoMessage.edit({
-                        embeds: [carrinho],
-                        components: [dropdown, buttons]
-                    });
-                }
-
                 await interaction.update({
-                    content: `✅ **${qtd}x ${servico.nome}** adicionado!\nSubtotal: R$ ${(servico.preco * qtd).toFixed(2).replace('.', ',')}`,
-                    components: []
+                    embeds: [carrinhoEmbed],
+                    components: [dropdown, buttons]
                 });
 
-                console.log(`🛒 Thread ${threadId}: ${user.tag} +${qtd}x ${servico.nome}`);
-            } else {
-                await interaction.update({
-                    content: '❌ Erro ao adicionar ao carrinho.',
-                    components: []
-                });
-            }
-
-        } else if (interaction.customId === 'finalizar_pedido') {
-            const carrinho = getCarrinho(userId);
-
-            if (carrinho.items.length === 0) {
-                await interaction.reply({
-                    content: '❌ Carrinho vazio! Adicione serviços primeiro.',
+                await interaction.followUp({
+                    content: `✅ **${servico.nome}** adicionado ao carrinho. Deseja adicionar mais unidades?`,
+                    components: [criarDropdownQuantidade(servicoId)],
                     ephemeral: true
                 });
+            }
+        }
+
+        // Lógica para seleção de quantidade (dropdown)
+        if (interaction.customId === 'select_quantidade') {
+            const [servicoId, quantidadeStr] = interaction.values[0].split('_');
+            const quantidade = parseInt(quantidadeStr);
+            const servico = servicos[servicoId];
+
+            if (!servico) {
+                await interaction.reply({ content: 'Serviço não encontrado.', ephemeral: true });
                 return;
             }
 
-            const pagamentoEmbed = criarPagamentoEmbed(userId, user, threadId);
-            const adminButton = criarBotaoAdminFinalizar(threadId);
+            removerItem(userId, servicoId);
+            adicionarItem(userId, servicoId, quantidade);
 
-            await interaction.reply({
-                embeds: [pagamentoEmbed],
-                components: [adminButton],
-                ephemeral: false
-            });
-
-            const totalItens = carrinho.items.reduce((sum, item) => sum + item.quantidade, 0);
-            console.log(`💰 PEDIDO Thread ${threadId}: ${user.tag} - R$ ${carrinho.total.toFixed(2)} - ${totalItens} serviços`);
-
-            limparCarrinho(userId);
-
-        } else if (interaction.customId.startsWith('admin_finalizar_')) {
-            // Botão exclusivo para admins Hellza
-            if (!isHellzaAdmin(member)) {
-                await interaction.reply({
-                    content: `❌ **Acesso Negado**\n\nApenas membros com cargo **${CARGO_ADMIN_PRINCIPAL}** podem finalizar serviços administrativamente.`,
-                    ephemeral: true
-                });
-                return;
-            }
-
-            const threadIdFromButton = interaction.customId.replace('admin_finalizar_', '');
-
-            // Finaliza a thread
-            finalizarThread(threadIdFromButton, user.id);
-
-            // Remove acesso do cliente
-            const thread = interaction.channel;
-            const clienteUsername = thread.name.split('-')[2];
-
-            let clienteRemovido = false;
-            const clienteMember = thread.guild.members.cache.find(member => 
-                member.user.username === clienteUsername
-            );
-
-            if (clienteMember) {
-                try {
-                    await thread.members.remove(clienteMember.id);
-                    console.log(`🔒 Cliente ${clienteMember.user.tag} removido da thread ${threadIdFromButton}`);
-                    clienteRemovido = true;
-
-                    // Remove thread ativa do controle
-                    removerThreadAtiva(clienteMember.user.id);
-
-                } catch (error) {
-                    console.error(`❌ Erro ao remover cliente:`, error);
-                }
-            }
-
-            const finalizadoEmbed = new EmbedBuilder()
-                .setTitle('✅ SERVIÇO FINALIZADO PELA ADMINISTRAÇÃO HELLZA')
-                .setDescription(
-                    `**🎉 Serviço concluído com sucesso!**\n\n` +
-                    `**👑 Finalizado por:** ${user.displayName} (${CARGO_ADMIN_PRINCIPAL})\n` +
-                    `**📅 Data/Hora:** ${new Date().toLocaleString('pt-BR')}\n` +
-                    `**🔒 Status:** Thread restrita à administração\n` +
-                    `**👤 Cliente:** ${clienteRemovido ? 'Removido da thread' : 'Não encontrado'}\n\n` +
-                    `**📋 Ações realizadas:**\n` +
-                    `• ✅ Pagamento confirmado\n` +
-                    `• ✅ Serviço executado completamente\n` +
-                    `• ✅ Cliente satisfeito\n` +
-                    `• 🔒 Thread finalizada administrativamente\n` +
-                    `• 🔓 Cliente liberado para novas threads\n\n` +
-                    `**👥 Acesso atual:** Apenas equipe administrativa Hellza\n` +
-                    `O cliente foi removido da thread e pode criar nova thread se necessário.`
-                )
-                .setColor(0x00FF00)
-                .setFooter({ text: `Finalizado por ${CARGO_ADMIN_PRINCIPAL} • Sistema Único v2.2 • Anti-Duplicação` })
-                .setTimestamp();
+            const carrinhoEmbed = criarCarrinhoEmbed(userId, user);
+            const dropdown = criarDropdownServicos();
+            const buttons = criarBotoesCarrinho();
 
             await interaction.update({
-                embeds: [finalizadoEmbed],
+                embeds: [carrinhoEmbed],
+                components: [dropdown, buttons]
+            });
+
+            await interaction.followUp({ content: `📦 Quantidade de **${servico.nome}** atualizada para **${quantidade}x**.`, ephemeral: true });
+        }
+
+        // Lógica para botões do carrinho
+        if (interaction.customId === 'atualizar_carrinho') {
+            const carrinhoEmbed = criarCarrinhoEmbed(userId, user);
+            const dropdown = criarDropdownServicos();
+            const buttons = criarBotoesCarrinho();
+
+            await interaction.update({
+                embeds: [carrinhoEmbed],
+                components: [dropdown, buttons]
+            });
+        }
+
+        if (interaction.customId === 'remover_item') {
+            const carrinho = getCarrinho(userId);
+            if (carrinho.items.length === 0) {
+                await interaction.reply({ content: 'Seu carrinho já está vazio!', ephemeral: true });
+                return;
+            }
+
+            const dropdownRemover = criarDropdownRemover(userId);
+            await interaction.reply({
+                content: '🗑️ Escolha qual item deseja remover:',
+                components: [dropdownRemover],
+                ephemeral: true
+            });
+        }
+
+        if (interaction.customId === 'confirmar_remocao') {
+            const servicoId = interaction.values[0];
+            const servico = servicos[servicoId];
+            removerItem(userId, servicoId);
+
+            const carrinhoEmbed = criarCarrinhoEmbed(userId, user);
+            const dropdown = criarDropdownServicos();
+            const buttons = criarBotoesCarrinho();
+
+            await interaction.update({
+                embeds: [carrinhoEmbed],
+                components: [dropdown, buttons]
+            });
+
+            await interaction.followUp({ content: `🗑️ **${servico.nome}** removido do carrinho.`, ephemeral: true });
+        }
+
+        if (interaction.customId === 'limpar_carrinho') {
+            limparCarrinho(userId);
+
+            const carrinhoEmbed = criarCarrinhoEmbed(userId, user);
+            const dropdown = criarDropdownServicos();
+            const buttons = criarBotoesCarrinho();
+
+            await interaction.update({
+                embeds: [carrinhoEmbed],
+                components: [dropdown, buttons]
+            });
+
+            await interaction.followUp({ content: '🧹 Seu carrinho foi limpo!', ephemeral: true });
+        }
+
+        if (interaction.customId === 'finalizar_pedido') {
+            const carrinho = getCarrinho(userId);
+            if (carrinho.items.length === 0) {
+                await interaction.reply({ content: 'Seu carrinho está vazio. Adicione itens antes de finalizar!', ephemeral: true });
+                return;
+            }
+
+            const pagamentoEmbed = criarPagamentoEmbed(userId, user);
+            const adminButton = criarBotaoAdminFinalizar(threadId);
+
+            await interaction.update({
+                embeds: [pagamentoEmbed],
+                components: [adminButton]
+            });
+
+            // Adiciona o cargo 'Serviço em Andamento' ao cliente
+            const clienteMember = interaction.member;
+            const cargoEmAndamento = interaction.guild.roles.cache.find(role => role.name === CARGO_SERVICO_EM_ANDAMENTO);
+            if (cargoEmAndamento && clienteMember) {
+                if (!clienteMember.roles.cache.has(cargoEmAndamento.id)) {
+                    await clienteMember.roles.add(cargoEmAndamento);
+                    console.log(`[Cargo] Adicionado '${CARGO_SERVICO_EM_ANDAMENTO}' para ${clienteMember.user.tag}`);
+                }
+            }
+
+            await thread.send(`✅ ${user}, seu pedido foi finalizado! A equipe Hellza já foi notificada e aguarda seu comprovante de PIX. Você recebeu o cargo '${CARGO_SERVICO_EM_ANDAMENTO}'.`);
+
+            // Envia notificação para os admins
+            const adminChannel = interaction.guild.channels.cache.find(c => c.name.toLowerCase().includes('logs') || c.name.toLowerCase().includes('admin'));
+            if (adminChannel && adminChannel.isTextBased()) {
+                await adminChannel.send(`🔔 **NOVO PEDIDO!** O usuário ${user} (ID: ${userId}) finalizou um pedido na thread ${thread.name} (${thread.url}). Ele recebeu o cargo '${CARGO_SERVICO_EM_ANDAMENTO}'.`);
+            }
+        }
+
+        // Lógica para o botão de finalização do administrador
+        if (interaction.customId.startsWith('admin_finalizar_')) {
+            if (!isHellzaAdmin(member) && !isSuporteAdmin(member)) {
+                await interaction.reply({ content: '🚫 Você não tem permissão para finalizar serviços.', ephemeral: true });
+                return;
+            }
+
+            const clienteMember = await thread.guild.members.fetch(thread.ownerId);
+
+            // 1. ADICIONA CARGO "Já comprou" ao cliente
+            const cargoComprador = thread.guild.roles.cache.find(role => role.name === CARGO_CLIENTE_COMPROU);
+            if (cargoComprador && clienteMember) {
+                if (!clienteMember.roles.cache.has(cargoComprador.id)) {
+                    await clienteMember.roles.add(cargoComprador);
+                    console.log(`[Cargo] Adicionado '${CARGO_CLIENTE_COMPROU}' para ${clienteMember.user.tag}`);
+                }
+            }
+
+            // 2. REMOVE CARGO "Serviço em Andamento" do cliente
+            const cargoEmAndamento = thread.guild.roles.cache.find(role => role.name === CARGO_SERVICO_EM_ANDAMENTO);
+            if (cargoEmAndamento && clienteMember) {
+                if (clienteMember.roles.cache.has(cargoEmAndamento.id)) {
+                    await clienteMember.roles.remove(cargoEmAndamento);
+                    console.log(`[Cargo] Removido '${CARGO_SERVICO_EM_ANDAMENTO}' de ${clienteMember.user.tag}`);
+                }
+            }
+
+            // Finaliza a thread no sistema de controle
+            finalizarThread(threadId, member.id);
+            removerThreadAtiva(clienteMember.id);
+            limparCarrinho(clienteMember.id);
+
+            // Remove o cliente da thread
+            try {
+                await thread.members.remove(clienteMember.id);
+                console.log(`👤 Cliente ${clienteMember.user.tag} removido da thread ${thread.name}`);
+            } catch (error) {
+                console.error(`❌ Erro ao remover cliente da thread:`, error.message);
+            }
+
+            // Renomeia a thread e a arquiva
+            const oldName = thread.name;
+            const newName = `✅-finalizado-${oldName.replace("🛒-loja-", "")}`;
+            await thread.setName(newName);
+            await thread.setArchived(true);
+
+            await interaction.update({
+                content: `✅ Serviço finalizado por ${member.displayName}. Cliente ${clienteMember.user.tag} recebeu o cargo '${CARGO_CLIENTE_COMPROU}' e teve o cargo '${CARGO_SERVICO_EM_ANDAMENTO}' removido. A thread foi arquivada.`,
+                embeds: [],
                 components: []
             });
 
-            console.log(`✅ Thread ${threadIdFromButton} finalizada por ${user.tag} (Hellza)`);
-
-            // Renomeia a thread
+            // Envia notificação para o cliente por DM
             try {
-                const novoNome = thread.name + '-FINALIZADA';
-                await thread.setName(novoNome);
-                console.log(`🏷️ Thread renomeada para: ${novoNome}`);
-            } catch (error) {
-                console.error(`❌ Erro ao renomear thread:`, error);
+                await clienteMember.send(
+                    `🎉 **Seu serviço na loja privada ${oldName} foi finalizado pela equipe Hellza!**\n\n` +
+                    `Você recebeu o cargo '${CARGO_CLIENTE_COMPROU}' e o cargo '${CARGO_SERVICO_EM_ANDAMENTO}' foi removido.\n\n` +
+                    `A thread foi arquivada. Sinta-se à vontade para criar uma nova loja privada reagindo 🛒 na mensagem fixada oficial para futuros serviços!`
+                );
+            } catch (dmError) {
+                console.error(`❌ Não foi possível enviar DM de finalização para ${clienteMember.user.tag}:`, dmError.message);
             }
 
-        } else if (interaction.customId === 'atualizar_carrinho') {
-            const carrinho = criarCarrinhoEmbed(userId, user);
-            const dropdown = criarDropdownServicos();
-            const buttons = criarBotoesCarrinho();
-
-            await interaction.update({
-                embeds: [carrinho],
-                components: [dropdown, buttons]
-            });
-
-        } else if (interaction.customId === 'remover_item') {
-            const dropdownRemover = criarDropdownRemover(userId);
-
-            if (dropdownRemover) {
-                const carrinho = criarCarrinhoEmbed(userId, user);
-                const dropdown = criarDropdownServicos();
-                const buttons = criarBotoesCarrinho();
-
-                await interaction.update({
-                    embeds: [carrinho],
-                    components: [dropdown, dropdownRemover, buttons]
-                });
-            } else {
-                await interaction.reply({
-                    content: '❌ Carrinho vazio!',
-                    ephemeral: true
-                });
+            // Envia notificação para o canal de logs/admin
+            const adminChannel = interaction.guild.channels.cache.find(c => c.name.toLowerCase().includes('logs') || c.name.toLowerCase().includes('admin'));
+            if (adminChannel && adminChannel.isTextBased()) {
+                await adminChannel.send(`✅ **SERVIÇO FINALIZADO!** O administrador ${member.user.tag} finalizou o serviço do usuário ${clienteMember.user.tag} (ID: ${clienteMember.id}) na thread ${thread.name}. O cliente recebeu o cargo '${CARGO_CLIENTE_COMPROU}' e teve o cargo '${CARGO_SERVICO_EM_ANDAMENTO}' removido.`);
             }
-
-        } else if (interaction.customId === 'confirmar_remocao') {
-            const servicoId = interaction.values[0];
-            const servico = servicos[servicoId];
-
-            removerItem(userId, servicoId);
-
-            const carrinho = criarCarrinhoEmbed(userId, user);
-            const dropdown = criarDropdownServicos();
-            const buttons = criarBotoesCarrinho();
-
-            await interaction.update({
-                embeds: [carrinho],
-                components: [dropdown, buttons]
-            });
-
-            await interaction.followUp({
-                content: `🗑️ **${servico.nome}** removido!`,
-                ephemeral: true
-            });
-
-        } else if (interaction.customId === 'limpar_carrinho') {
-            limparCarrinho(userId);
-
-            const carrinho = criarCarrinhoEmbed(userId, user);
-            const dropdown = criarDropdownServicos();
-            const buttons = criarBotoesCarrinho();
-
-            await interaction.update({
-                embeds: [carrinho],
-                components: [dropdown, buttons]
-            });
-
-            await interaction.followUp({
-                content: '🧹 Carrinho limpo!',
-                ephemeral: true
-            });
         }
 
     } catch (error) {
-        console.error('❌ Erro na interação:', error);
-
-        try {
-            const errorMsg = '❌ Erro inesperado. Tente novamente.';
-            if (interaction.replied || interaction.deferred) {
-                await interaction.followUp({ content: errorMsg, ephemeral: true });
-            } else {
-                await interaction.reply({ content: errorMsg, ephemeral: true });
-            }
-        } catch (replyError) {
-            console.error('❌ Erro ao responder:', replyError);
+        console.error(`❌ Erro na interação ${interaction.customId} por ${user.tag}:`, error);
+        if (interaction.deferred || interaction.replied) {
+            await interaction.followUp({ content: 'Ocorreu um erro ao processar sua solicitação.', ephemeral: true });
+        } else {
+            await interaction.reply({ content: 'Ocorreu um erro ao processar sua solicitação.', ephemeral: true });
         }
     }
 });
+
+// ================================================
+// 🚫 EVENT: ERROS
+// ================================================
 
 client.on(Events.Error, (error) => {
     console.error('❌ Erro crítico:', error);
 });
 
-// 🔑 USA VARIÁVEL DE AMBIENTE PARA O TOKEN
+// ================================================
+// 🔑 LOGIN DO BOT COM VARIÁVEL DE AMBIENTE
+// ================================================
+
 client.login(process.env.DISCORD_TOKEN);
