@@ -281,7 +281,7 @@ function removerThreadAtiva(userId) {
 }
 
 // ================================================
-// 🧹 FUNÇÕES DE LIMPEZA
+// 🧹 FUNÇÃO DE LIMPEZA CORRIGIDA - PROTEGE SERVICOS-FINALIZADOS
 // ================================================
 
 async function limparMensagensGuild(guild) {
@@ -292,6 +292,12 @@ async function limparMensagensGuild(guild) {
 
         for (const [channelId, channel] of channels) {
             try {
+                // 🔒 PROTEÇÃO: NÃO APAGA SERVICOS-FINALIZADOS
+                if (channel.name.toLowerCase().includes(CANAL_LOG_FINALIZADOS.toLowerCase())) {
+                    console.log(`🛡️ Protegido: Pulando limpeza no canal ${channel.name} (canal de logs)`);
+                    continue;
+                }
+
                 if (!channel.permissionsFor(guild.members.me)?.has(PermissionsBitField.Flags.ReadMessageHistory)) {
                     console.log(`⚠️ Bot sem permissão de leitura em ${channel.name}. Ignorando limpeza.`);
                     continue;
@@ -317,7 +323,7 @@ async function limparMensagensGuild(guild) {
                 console.error(`❌ Erro ao buscar mensagens no canal ${channel.name}:`, error.message);
             }
         }
-        console.log(`✅ ${totalDeleted} mensagens antigas removidas de ${guild.name}`);
+        console.log(`✅ ${totalDeleted} mensagens antigas removidas de ${guild.name} (${CANAL_LOG_FINALIZADOS} protegido)`);
     } catch (error) {
         console.error('❌ Erro geral na limpeza de mensagens:', error);
     }
@@ -727,6 +733,13 @@ client.once(Events.ClientReady, async () => {
     console.log(`📊 Canal de log: ${CANAL_LOG_FINALIZADOS}`);
     console.log(`📊 ${Object.keys(servicos).length} serviços configurados`);
     console.log(`🔒 Sistema anti-duplicação ativo`);
+
+    // 🔍 DEBUG: Mostra as variáveis PIX no console
+    console.log('⚙️ Variáveis PIX:', {
+        chave: process.env.PIX_CHAVE || 'NÃO CONFIGURADA',
+        nome: process.env.PIX_NOME || 'NÃO CONFIGURADA',
+        banco: process.env.PIX_BANCO || 'NÃO CONFIGURADA'
+    });
 
     client.user.setActivity('🛒 Sistema Único v2.2', { type: 'PLAYING' });
 
