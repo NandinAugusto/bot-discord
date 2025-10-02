@@ -2,11 +2,11 @@
   "name": "loja-hellza-bot",
   "version": "2.2.0",
   "description": "Bot de vendas Discord com sistema anti-duplicação e variáveis de ambiente para Railway",
-  "main": "bot-com-variaveis-railway.js",
+  "main": "bot-tagged.js",
   "scripts": {
-    "start": "node bot-com-variaveis-railway.js",
-    "dev": "node bot-com-variaveis-railway.js",
-    "deploy": "node bot-com-variaveis-railway.js"
+    "start": "node bot-tagged.js",
+    "dev": "node bot-tagged.js",
+    "deploy": "node botbot-tagged.js"
   },
   "dependencies": {
     "discord.js": "^14.14.1"
