@@ -2,17 +2,17 @@
   "name": "loja-hellza-bot",
   "version": "2.2.0",
   "description": "Bot de vendas Discord com sistema anti-duplicação e variáveis de ambiente para Railway",
-  "main": "bot-tagged",
+  "main": "bot-tagged.js",
   "scripts": {
-    "start": "node bot-tagged"
+    "start": "node bot-tagged.js"
   },
   "dependencies": {
     "discord.js": "^14.14.1"
   },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=18.0.0"
   },
-"author": "Nandin",
+  "author": "Nandin Augusto",
   "license": "MIT",
   "repository": {
     "type": "git",
