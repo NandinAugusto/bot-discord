@@ -16,6 +16,9 @@ const CANAIS_SERVICOS = process.env.CANAIS_SERVICOS ?
     process.env.CANAIS_SERVICOS.split(',').map(c => c.trim()) : 
     ['serviços'];
 
+// 📊 CANAL DE LOG DOS SERVIÇOS FINALIZADOS - USANDO VARIÁVEIS DE AMBIENTE
+const CANAL_LOG_FINALIZADOS = process.env.CANAL_LOG_FINALIZADOS || 'servicos-finalizados';
+
 // 👑 CARGO PRINCIPAL DE ADMINISTRAÇÃO - USANDO VARIÁVEIS DE AMBIENTE
 const CARGO_ADMIN_PRINCIPAL = process.env.CARGO_ADMIN_PRINCIPAL || 'Hellza';
 
@@ -438,6 +441,86 @@ function limparCarrinho(userId) {
 }
 
 // ================================================
+// 📊 FUNÇÃO DE LOG DOS SERVIÇOS FINALIZADOS
+// ================================================
+
+async function logarServicoFinalizado(guild, clienteMember, adminMember, threadName, carrinho) {
+    try {
+        // Procura pelo canal de logs
+        const canalLog = guild.channels.cache.find(c => 
+            c.name.toLowerCase().includes(CANAL_LOG_FINALIZADOS.toLowerCase()) && 
+            c.isTextBased() && 
+            !c.isThread()
+        );
+
+        if (!canalLog) {
+            console.log(`⚠️ Canal de log '${CANAL_LOG_FINALIZADOS}' não encontrado`);
+            return false;
+        }
+
+        // Prepara dados do carrinho
+        const totalValor = carrinho.total.toFixed(2).replace('.', ',');
+        const totalItens = carrinho.items.reduce((sum, item) => sum + item.quantidade, 0);
+
+        const listaServicos = carrinho.items.length > 0 ? 
+            carrinho.items.map((item, index) => 
+                `${item.emoji} **${item.nome}** (${item.quantidade}x) - R$ ${item.subtotal.toFixed(2).replace('.', ',')}`
+            ).join('\n') : 
+            'Nenhum serviço encontrado';
+
+        // Cria embed do log
+        const embedLog = new EmbedBuilder()
+            .setTitle('✅ SERVIÇO FINALIZADO')
+            .setDescription(
+                `**📋 RESUMO DA TRANSAÇÃO**\n\n` +
+                `👤 **Cliente:** ${clienteMember.user.tag} (\`${clienteMember.id}\`)\n` +
+                `👑 **Admin:** ${adminMember.user.tag} (\`${adminMember.id}\`)\n` +
+                `🧵 **Thread:** ${threadName}\n` +
+                `📅 **Data:** ${new Date().toLocaleString('pt-BR')}\n` +
+                `🕐 **Timestamp:** <t:${Math.floor(Date.now() / 1000)}:F>`
+            )
+            .addFields([
+                { 
+                    name: '📦 Serviços Realizados', 
+                    value: listaServicos, 
+                    inline: false 
+                },
+                { 
+                    name: '📊 Total de Itens', 
+                    value: `${totalItens} itens`, 
+                    inline: true 
+                },
+                { 
+                    name: '💰 Valor Total', 
+                    value: `R$ ${totalValor}`, 
+                    inline: true 
+                },
+                { 
+                    name: '🏷️ Status', 
+                    value: 'Finalizado ✅', 
+                    inline: true 
+                }
+            ])
+            .setColor(0x00FF00)
+            .setThumbnail(clienteMember.user.displayAvatarURL())
+            .setFooter({ 
+                text: `Sistema de Log Hellza • ID: ${Date.now()}`, 
+                iconURL: guild.iconURL() 
+            })
+            .setTimestamp();
+
+        // Envia o log
+        await canalLog.send({ embeds: [embedLog] });
+        console.log(`📊 Log de serviço enviado para ${canalLog.name}: ${clienteMember.user.tag} | R$ ${totalValor}`);
+        return true;
+
+    } catch (error) {
+        console.error('❌ Erro ao enviar log de serviço finalizado:', error);
+        return false;
+    }
+}
+
+// ================================================
 // 🎮 INTERFACES
 // ================================================
 
@@ -554,6 +637,11 @@ function criarPagamentoEmbed(userId, user) {
                 name: '🔄 Próximo Passo', 
                 value: 'Aguardando comprovante e confirmação administrativa Hellza.',
                 inline: false 
+            },
+            {
+                name: '👑 Para Administradores',
+                value: '**Apenas admins podem ver e clicar no botão de finalização abaixo.**',
+                inline: false
             }
         ])
         .setColor(0x32CD32)
@@ -583,13 +671,14 @@ function criarBotoesCarrinho() {
         );
 }
 
+// 🔧 CORRIGIDO: Função que cria botão apenas para admins
 function criarBotaoAdminFinalizar(threadId) {
     return new ActionRowBuilder()
         .addComponents(
             new ButtonBuilder()
                 .setCustomId(`admin_finalizar_${threadId}`)
-                .setLabel('👑 Finalizar Serviço')
-                .setStyle(ButtonStyle.Primary)
+                .setLabel('👑 FINALIZAR SERVIÇO (ADMIN)')
+                .setStyle(ButtonStyle.Danger)
                 .setEmoji('✅')
         );
 }
@@ -625,6 +714,7 @@ client.once(Events.ClientReady, async () => {
     console.log(`🤖 Bot ANTI-DUPLICAÇÃO online: ${client.user.tag}!`);
     console.log(`👑 Cargo principal: ${CARGO_ADMIN_PRINCIPAL}`);
     console.log(`👥 Cargos suporte: ${CARGOS_SUPORTE.join(', ')}`);
+    console.log(`📊 Canal de log: ${CANAL_LOG_FINALIZADOS}`);
     console.log(`📊 ${Object.keys(servicos).length} serviços configurados`);
     console.log(`🔒 Sistema anti-duplicação ativo`);
 
@@ -1090,7 +1180,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 }
             }
 
-            await thread.send(`✅ ${user}, seu pedido foi finalizado! A equipe Hellza já foi notificada e aguarda seu comprovante de PIX.`);
+            await thread.send(`✅ ${user}, seu pedido foi finalizado! A equipe Hellza já foi notificada e aguarda seu comprovante de PIX.\n\n🚨 **IMPORTANTE:** Apenas administradores podem clicar no botão vermelho acima para finalizar o serviço.`);
 
             // Envia notificação para os admins
             const adminChannel = interaction.guild.channels.cache.find(c => c.name.toLowerCase().includes('logs') || c.name.toLowerCase().includes('admin'));
@@ -1100,17 +1190,24 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
 
         // ================================================
-        // 🎯 LÓGICA PARA FINALIZAÇÃO ADMIN (QUALQUER ADMIN)
+        // 🔧 BOTÃO ADMIN COM LOG DOS SERVIÇOS FINALIZADOS
         // ================================================
         if (interaction.customId.startsWith('admin_finalizar_')) {
+            // 🛡️ VERIFICAÇÃO RIGOROSA DE ADMIN
             if (!isQualquerAdmin(member)) {
-                await interaction.reply({ content: '🚫 Você não tem permissão para finalizar serviços.', ephemeral: true });
+                console.log(`🚫 ${user.tag} tentou finalizar sem ser admin`);
+                await interaction.reply({ 
+                    content: '🚫 **Acesso Negado!**\n\nApenas administradores podem finalizar serviços.\n\n👑 **Cargos autorizados:** Hellza, Admin, Moderador, Staff, Suporte.', 
+                    ephemeral: true 
+                });
                 return;
             }
 
+            console.log(`👑 Admin ${user.tag} finalizando serviço na thread ${threadId}`);
+
             // 1️⃣ RESPONDER PRIMEIRO (thread ainda ativa)
             await interaction.update({
-                content: `✅ **Serviço finalizado por ${member.displayName}!**\n\nO cliente foi removido da thread e pode criar uma nova loja quando necessário.`,
+                content: `✅ **🎉 SERVIÇO FINALIZADO COM SUCESSO! 🎉**\n\n👑 **Finalizado por:** ${member.displayName}\n📅 **Data:** ${new Date().toLocaleString('pt-BR')}\n\n💼 O cliente foi removido da thread e já pode criar uma nova loja quando necessário.\n\n🔒 Esta thread será arquivada automaticamente.`,
                 embeds: [],
                 components: []
             });
@@ -1125,6 +1222,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 );
 
                 if (clienteMember) {
+                    console.log(`👤 Cliente identificado: ${clienteMember.user.tag}`);
+
+                    // 🔑 CAPTURA CARRINHO ANTES DE LIMPAR
+                    const carrinhoCliente = getCarrinho(clienteMember.id);
+
+                    // 📊 ENVIAR LOG NO CANAL SERVICOS-FINALIZADOS
+                    await logarServicoFinalizado(interaction.guild, clienteMember, member, thread.name, carrinhoCliente);
+
                     // Gerenciamento de cargos
                     const cargoComprador = thread.guild.roles.cache.find(role => role.name === CARGO_CLIENTE_COMPROU);
                     const cargoEmAndamento = thread.guild.roles.cache.find(role => role.name === CARGO_SERVICO_EM_ANDAMENTO);
@@ -1135,7 +1240,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     }
 
                     if (cargoEmAndamento && clienteMember.roles.cache.has(cargoEmAndamento.id)) {
-                        await clienteMember.roles.remove(cargoEmAndamento);
+                        await cargoEmAndamento.roles.remove(cargoEmAndamento);
                         console.log(`[Cargo] Removido '${CARGO_SERVICO_EM_ANDAMENTO}' de ${clienteMember.user.tag}`);
                     }
 
@@ -1143,20 +1248,25 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     await thread.members.remove(clienteMember.id);
                     console.log(`👤 Cliente ${clienteMember.user.tag} removido da thread ${thread.name}`);
 
-                    // Remove do controle ativo
+                    // Remove do controle ativo e limpa carrinho
                     removerThreadAtiva(clienteMember.id);
                     limparCarrinho(clienteMember.id);
 
                     // Envia DM para o cliente
                     try {
                         await clienteMember.send(
-                            `🎉 **Seu serviço foi finalizado pela equipe Hellza!**\n\n` +
-                            `A thread foi arquivada e você já pode criar uma nova loja privada reagindo 🛒 na mensagem fixada oficial para futuros serviços!\n\n` +
-                            `✅ Você recebeu o cargo '${CARGO_CLIENTE_COMPROU}'.`
+                            `🎉 **SERVIÇO FINALIZADO COM SUCESSO!**\n\n` +
+                            `👑 **Finalizado por:** ${member.displayName}\n` +
+                            `📅 **Data:** ${new Date().toLocaleString('pt-BR')}\n\n` +
+                            `✅ Você recebeu o cargo '${CARGO_CLIENTE_COMPROU}'.\n\n` +
+                            `🛒 **Para futuros serviços:** Reaja 🛒 na mensagem fixada oficial nos canais para criar uma nova loja privada!\n\n` +
+                            `🙏 **Obrigado por escolher a Hellza Gaming!**`
                         );
                     } catch (dmError) {
                         console.error(`❌ Não foi possível enviar DM para ${clienteMember.user.tag}:`, dmError.message);
                     }
+                } else {
+                    console.log('⚠️ Cliente não encontrado na thread');
                 }
 
                 // Finaliza thread no controle
@@ -1171,18 +1281,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
                 console.log(`✅ Thread finalizada por ${member.user.tag}: ${oldName} → ${newName}`);
 
-                // Notifica canal admin
+                // Notifica canal admin (se existir e for diferente do canal de logs)
                 const adminChannel = interaction.guild.channels.cache.find(c => 
-                    c.name.toLowerCase().includes('logs') || c.name.toLowerCase().includes('admin')
+                    (c.name.toLowerCase().includes('logs') || c.name.toLowerCase().includes('admin')) &&
+                    !c.name.toLowerCase().includes('finalizados')
                 );
                 if (adminChannel && adminChannel.isTextBased()) {
                     const clienteTag = clienteMember?.user.tag || 'Cliente não encontrado';
                     await adminChannel.send(
-                        `✅ **SERVIÇO FINALIZADO!**\n\n` +
+                        `🎉 **SERVIÇO FINALIZADO COM SUCESSO!**\n\n` +
                         `👑 **Admin:** ${member.user.tag}\n` +
                         `👤 **Cliente:** ${clienteTag}\n` +
                         `📄 **Thread:** ${newName}\n` +
-                        `🕐 **Horário:** ${new Date().toLocaleString('pt-BR')}`
+                        `🕐 **Horário:** ${new Date().toLocaleString('pt-BR')}\n\n` +
+                        `💼 **Status:** Finalizado e arquivado automaticamente\n` +
+                        `📊 **Log detalhado enviado para:** #${CANAL_LOG_FINALIZADOS}`
                     );
                 }
 
@@ -1191,7 +1304,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
                 // Tentar enviar erro no canal da thread (se ainda não arquivada)
                 try {
-                    await thread.send(`❌ **Erro durante finalização:** ${error.message}`);
+                    await thread.send(`❌ **Erro durante finalização:** ${error.message}\n\n⚠️ Contate um administrador se o problema persistir.`);
                 } catch (sendError) {
                     console.error(`❌ Não foi possível enviar erro na thread:`, sendError.message);
                 }
