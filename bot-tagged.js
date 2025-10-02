@@ -13,7 +13,7 @@ const PIX_CONFIG = {
 
 // 📢 CANAIS PARA POSTAGEM AUTOMÁTICA - USANDO VARIÁVEIS DE AMBIENTE
 const CANAIS_SERVICOS = process.env.CANAIS_SERVICOS ? 
-    process.env.CANAIS_SERVICOS.split(',') : 
+    process.env.CANAIS_SERVICOS.split(',').map(c => c.trim()) : 
     ['serviços'];
 
 // 👑 CARGO PRINCIPAL DE ADMINISTRAÇÃO - USANDO VARIÁVEIS DE AMBIENTE
@@ -21,7 +21,7 @@ const CARGO_ADMIN_PRINCIPAL = process.env.CARGO_ADMIN_PRINCIPAL || 'Hellza';
 
 // 👥 OUTROS CARGOS DE SUPORTE - USANDO VARIÁVEIS DE AMBIENTE
 const CARGOS_SUPORTE = process.env.CARGOS_SUPORTE ? 
-    process.env.CARGOS_SUPORTE.split(',') : 
+    process.env.CARGOS_SUPORTE.split(',').map(c => c.trim()) : 
     [
         'admin',
         'administrador',
@@ -212,6 +212,11 @@ function isSuporteAdmin(member) {
     );
 }
 
+// 🔧 NOVA FUNÇÃO: Verifica se é qualquer tipo de admin
+function isQualquerAdmin(member) {
+    return isHellzaAdmin(member) || isSuporteAdmin(member);
+}
+
 function getProximoNumeroThread(userId) {
     if (!contadorThreads.has(userId)) {
         contadorThreads.set(userId, 1);
@@ -249,8 +254,12 @@ function marcarThreadAtiva(userId, threadId) {
 }
 
 function removerThreadAtiva(userId) {
-    threadsAtivas.delete(userId);
-    console.log(`🔓 Thread ativa removida para ${userId}`);
+    if (threadsAtivas.has(userId)) {
+        threadsAtivas.delete(userId);
+        console.log(`🔓 Thread ativa removida para ${userId}`);
+        return true;
+    }
+    return false;
 }
 
 // ================================================
@@ -615,6 +624,7 @@ function criarDropdownRemover(userId) {
 client.once(Events.ClientReady, async () => {
     console.log(`🤖 Bot ANTI-DUPLICAÇÃO online: ${client.user.tag}!`);
     console.log(`👑 Cargo principal: ${CARGO_ADMIN_PRINCIPAL}`);
+    console.log(`👥 Cargos suporte: ${CARGOS_SUPORTE.join(', ')}`);
     console.log(`📊 ${Object.keys(servicos).length} serviços configurados`);
     console.log(`🔒 Sistema anti-duplicação ativo`);
 
@@ -675,10 +685,36 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
             return;
         }
 
-        // 🚨 VERIFICA SE JÁ TEM THREAD ATIVA
+        // 🛡️ ADMINISTRADORES TÊM TRATAMENTO ESPECIAL
+        const guild = reaction.message.guild;
+        const member = guild.members.cache.get(user.id);
+
+        if (member && isQualquerAdmin(member)) {
+            console.log(`👑 Admin ${user.tag} reagiu ao carrinho - permitindo acesso especial`);
+
+            // Remove reação do admin
+            await reaction.users.remove(user.id);
+
+            // Envia DM informativo para admin
+            try {
+                await user.send(
+                    `👑 **Acesso Administrativo - ${user.displayName}**\n\n` +
+                    `Você é um administrador e reagiu ao sistema de carrinho.\n\n` +
+                    `⚠️ **Nota:** Administradores não precisam criar threads de cliente.\n` +
+                    `📊 **Função:** Vocês gerenciam as threads criadas pelos clientes.\n\n` +
+                    `🔧 **Para testes:** Se quiser testar como cliente, peça para alguém sem cargo admin reagir ao 🛒.\n\n` +
+                    `✅ **Sistema funcionando normalmente!**`
+                );
+            } catch (dmError) {
+                console.log(`❌ Não foi possível enviar DM para admin ${user.tag}:`, dmError.message);
+            }
+
+            return;
+        }
+
+        // 🚨 VERIFICA SE JÁ TEM THREAD ATIVA (somente para não-admins)
         if (temThreadAtiva(user.id)) {
             const threadAtivaId = getThreadAtiva(user.id);
-            const guild = reaction.message.guild;
             const threadAtiva = guild.channels.cache.get(threadAtivaId);
 
             console.log(`🚫 ${user.tag} tentou criar nova thread tendo uma ativa: ${threadAtivaId}`);
@@ -710,7 +746,6 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
             return;
         }
 
-        const guild = reaction.message.guild;
         const numeroThread = getProximoNumeroThread(user.id);
         const nomeThread = `🛒-loja-${user.username}-${numeroThread}`;
 
@@ -729,8 +764,18 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
             await thread.members.add(user.id);
             console.log(`👤 ${user.tag} adicionado à thread ${numeroThread}`);
 
-            // Adiciona admins Hellza
+            // ✅ CORRIGIDO: Adiciona TODOS os tipos de admins
             let hellzaAdmins = 0;
+            let suporteAdmins = 0;
+
+            // Busca membros do servidor
+            try {
+                await guild.members.fetch();
+            } catch (fetchError) {
+                console.log('⚠️ Erro ao buscar membros, usando cache atual');
+            }
+
+            // Adiciona admins Hellza
             const hellzaRole = guild.roles.cache.find(role => 
                 role.name.toLowerCase() === CARGO_ADMIN_PRINCIPAL.toLowerCase()
             );
@@ -745,34 +790,35 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
                         await thread.members.add(hellzaMember.id);
                         console.log(`👑 Hellza Admin ${hellzaMember.user.tag} adicionado`);
                         hellzaAdmins++;
-                        await new Promise(resolve => setTimeout(resolve, 500));
+                        await new Promise(resolve => setTimeout(resolve, 300));
                     } catch (error) {
                         console.error(`❌ Erro ao adicionar Hellza ${hellzaMember.user.tag}:`, error.message);
                     }
                 }
             }
 
-            // Adiciona outros cargos de suporte
-            let suporteAdmins = 0;
-            for (const cargoNome of CARGOS_SUPORTE) {
-                const roles = guild.roles.cache.filter(role => 
-                    role.name.toLowerCase().includes(cargoNome.toLowerCase())
+            // ✅ CORRIGIDO: Adiciona cargos de suporte melhorados
+            const allMembers = guild.members.cache;
+            for (const [memberId, supportMember] of allMembers) {
+                if (supportMember.user.bot) continue;
+                if (supportMember.id === user.id) continue; // Não adiciona o próprio cliente
+
+                // Verifica se tem algum cargo de suporte
+                const temCargoSuporte = supportMember.roles.cache.some(role =>
+                    CARGOS_SUPORTE.some(cargo => role.name.toLowerCase().includes(cargo.toLowerCase()))
                 );
 
-                for (const [roleId, role] of roles) {
-                    const membersWithRole = guild.members.cache.filter(member => 
-                        member.roles.cache.has(role.id) && !member.user.bot
-                    );
-
-                    for (const [memberId, supportMember] of membersWithRole) {
-                        try {
-                            await thread.members.add(supportMember.id);
-                            console.log(`👥 Suporte ${supportMember.user.tag} adicionado (cargo: ${role.name})`);
-                            suporteAdmins++;
-                            await new Promise(resolve => setTimeout(resolve, 500));
-                        } catch (error) {
-                            console.error(`❌ Erro ao adicionar suporte ${supportMember.user.tag}:`, error.message);
-                        }
+                if (temCargoSuporte && !supportMember.roles.cache.has(hellzaRole?.id)) {
+                    try {
+                        await thread.members.add(supportMember.id);
+                        const cargoEncontrado = supportMember.roles.cache.find(role =>
+                            CARGOS_SUPORTE.some(cargo => role.name.toLowerCase().includes(cargo.toLowerCase()))
+                        );
+                        console.log(`👥 Suporte ${supportMember.user.tag} adicionado (cargo: ${cargoEncontrado.name})`);
+                        suporteAdmins++;
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                    } catch (error) {
+                        console.error(`❌ Erro ao adicionar suporte ${supportMember.user.tag}:`, error.message);
                     }
                 }
             }
@@ -884,7 +930,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     try {
         // Verifica se a thread foi finalizada
-        if (isThreadFinalizada(threadId) && !isHellzaAdmin(member) && !isSuporteAdmin(member)) {
+        if (isThreadFinalizada(threadId) && !isQualquerAdmin(member)) {
             await interaction.reply({
                 content: '🔒 **Thread Finalizada pela Administração**\n\nEsta thread foi finalizada por um administrador Hellza. Apenas a equipe administrativa pode interagir aqui.\n\n✅ **Para novos serviços:** Volte ao canal público e reaja 🛒 na mensagem fixada oficial.',
                 ephemeral: true
@@ -1035,96 +1081,133 @@ client.on(Events.InteractionCreate, async (interaction) => {
             const cargoEmAndamento = interaction.guild.roles.cache.find(role => role.name === CARGO_SERVICO_EM_ANDAMENTO);
             if (cargoEmAndamento && clienteMember) {
                 if (!clienteMember.roles.cache.has(cargoEmAndamento.id)) {
-                    await clienteMember.roles.add(cargoEmAndamento);
-                    console.log(`[Cargo] Adicionado '${CARGO_SERVICO_EM_ANDAMENTO}' para ${clienteMember.user.tag}`);
+                    try {
+                        await clienteMember.roles.add(cargoEmAndamento);
+                        console.log(`[Cargo] Adicionado '${CARGO_SERVICO_EM_ANDAMENTO}' para ${clienteMember.user.tag}`);
+                    } catch (error) {
+                        console.error(`❌ Erro ao adicionar cargo:`, error.message);
+                    }
                 }
             }
 
-            await thread.send(`✅ ${user}, seu pedido foi finalizado! A equipe Hellza já foi notificada e aguarda seu comprovante de PIX. Você recebeu o cargo '${CARGO_SERVICO_EM_ANDAMENTO}'.`);
+            await thread.send(`✅ ${user}, seu pedido foi finalizado! A equipe Hellza já foi notificada e aguarda seu comprovante de PIX.`);
 
             // Envia notificação para os admins
             const adminChannel = interaction.guild.channels.cache.find(c => c.name.toLowerCase().includes('logs') || c.name.toLowerCase().includes('admin'));
             if (adminChannel && adminChannel.isTextBased()) {
-                await adminChannel.send(`🔔 **NOVO PEDIDO!** O usuário ${user} (ID: ${userId}) finalizou um pedido na thread ${thread.name} (${thread.url}). Ele recebeu o cargo '${CARGO_SERVICO_EM_ANDAMENTO}'.`);
+                await adminChannel.send(`🔔 **NOVO PEDIDO!** O usuário ${user} (ID: ${userId}) finalizou um pedido na thread ${thread.name} (${thread.url}).`);
             }
         }
 
-        // Lógica para o botão de finalização do administrador
+        // ================================================
+        // 🎯 LÓGICA PARA FINALIZAÇÃO ADMIN (QUALQUER ADMIN)
+        // ================================================
         if (interaction.customId.startsWith('admin_finalizar_')) {
-            if (!isHellzaAdmin(member) && !isSuporteAdmin(member)) {
+            if (!isQualquerAdmin(member)) {
                 await interaction.reply({ content: '🚫 Você não tem permissão para finalizar serviços.', ephemeral: true });
                 return;
             }
 
-            const clienteMember = await thread.guild.members.fetch(thread.ownerId);
-
-            // 1. ADICIONA CARGO "Já comprou" ao cliente
-            const cargoComprador = thread.guild.roles.cache.find(role => role.name === CARGO_CLIENTE_COMPROU);
-            if (cargoComprador && clienteMember) {
-                if (!clienteMember.roles.cache.has(cargoComprador.id)) {
-                    await clienteMember.roles.add(cargoComprador);
-                    console.log(`[Cargo] Adicionado '${CARGO_CLIENTE_COMPROU}' para ${clienteMember.user.tag}`);
-                }
-            }
-
-            // 2. REMOVE CARGO "Serviço em Andamento" do cliente
-            const cargoEmAndamento = thread.guild.roles.cache.find(role => role.name === CARGO_SERVICO_EM_ANDAMENTO);
-            if (cargoEmAndamento && clienteMember) {
-                if (clienteMember.roles.cache.has(cargoEmAndamento.id)) {
-                    await clienteMember.roles.remove(cargoEmAndamento);
-                    console.log(`[Cargo] Removido '${CARGO_SERVICO_EM_ANDAMENTO}' de ${clienteMember.user.tag}`);
-                }
-            }
-
-            // Finaliza a thread no sistema de controle
-            finalizarThread(threadId, member.id);
-            removerThreadAtiva(clienteMember.id);
-            limparCarrinho(clienteMember.id);
-
-            // Remove o cliente da thread
-            try {
-                await thread.members.remove(clienteMember.id);
-                console.log(`👤 Cliente ${clienteMember.user.tag} removido da thread ${thread.name}`);
-            } catch (error) {
-                console.error(`❌ Erro ao remover cliente da thread:`, error.message);
-            }
-
-            // Renomeia a thread e a arquiva
-            const oldName = thread.name;
-            const newName = `✅-finalizado-${oldName.replace("🛒-loja-", "")}`;
-            await thread.setName(newName);
-            await thread.setArchived(true);
-
+            // 1️⃣ RESPONDER PRIMEIRO (thread ainda ativa)
             await interaction.update({
-                content: `✅ Serviço finalizado por ${member.displayName}. Cliente ${clienteMember.user.tag} recebeu o cargo '${CARGO_CLIENTE_COMPROU}' e teve o cargo '${CARGO_SERVICO_EM_ANDAMENTO}' removido. A thread foi arquivada.`,
+                content: `✅ **Serviço finalizado por ${member.displayName}!**\n\nO cliente foi removido da thread e pode criar uma nova loja quando necessário.`,
                 embeds: [],
                 components: []
             });
 
-            // Envia notificação para o cliente por DM
+            // 2️⃣ AÇÕES APÓS RESPOSTA (sem interagir mais)
             try {
-                await clienteMember.send(
-                    `🎉 **Seu serviço na loja privada ${oldName} foi finalizado pela equipe Hellza!**\n\n` +
-                    `Você recebeu o cargo '${CARGO_CLIENTE_COMPROU}' e o cargo '${CARGO_SERVICO_EM_ANDAMENTO}' foi removido.\n\n` +
-                    `A thread foi arquivada. Sinta-se à vontade para criar uma nova loja privada reagindo 🛒 na mensagem fixada oficial para futuros serviços!`
+                // Busca o cliente (não bot, não admin)
+                const clienteMember = thread.guild.members.cache.find(m => 
+                    thread.members.cache.has(m.id) && 
+                    !m.user.bot && 
+                    !isQualquerAdmin(m)
                 );
-            } catch (dmError) {
-                console.error(`❌ Não foi possível enviar DM de finalização para ${clienteMember.user.tag}:`, dmError.message);
-            }
 
-            // Envia notificação para o canal de logs/admin
-            const adminChannel = interaction.guild.channels.cache.find(c => c.name.toLowerCase().includes('logs') || c.name.toLowerCase().includes('admin'));
-            if (adminChannel && adminChannel.isTextBased()) {
-                await adminChannel.send(`✅ **SERVIÇO FINALIZADO!** O administrador ${member.user.tag} finalizou o serviço do usuário ${clienteMember.user.tag} (ID: ${clienteMember.id}) na thread ${thread.name}. O cliente recebeu o cargo '${CARGO_CLIENTE_COMPROU}' e teve o cargo '${CARGO_SERVICO_EM_ANDAMENTO}' removido.`);
+                if (clienteMember) {
+                    // Gerenciamento de cargos
+                    const cargoComprador = thread.guild.roles.cache.find(role => role.name === CARGO_CLIENTE_COMPROU);
+                    const cargoEmAndamento = thread.guild.roles.cache.find(role => role.name === CARGO_SERVICO_EM_ANDAMENTO);
+
+                    if (cargoComprador && !clienteMember.roles.cache.has(cargoComprador.id)) {
+                        await clienteMember.roles.add(cargoComprador);
+                        console.log(`[Cargo] Adicionado '${CARGO_CLIENTE_COMPROU}' para ${clienteMember.user.tag}`);
+                    }
+
+                    if (cargoEmAndamento && clienteMember.roles.cache.has(cargoEmAndamento.id)) {
+                        await clienteMember.roles.remove(cargoEmAndamento);
+                        console.log(`[Cargo] Removido '${CARGO_SERVICO_EM_ANDAMENTO}' de ${clienteMember.user.tag}`);
+                    }
+
+                    // Remove cliente da thread
+                    await thread.members.remove(clienteMember.id);
+                    console.log(`👤 Cliente ${clienteMember.user.tag} removido da thread ${thread.name}`);
+
+                    // Remove do controle ativo
+                    removerThreadAtiva(clienteMember.id);
+                    limparCarrinho(clienteMember.id);
+
+                    // Envia DM para o cliente
+                    try {
+                        await clienteMember.send(
+                            `🎉 **Seu serviço foi finalizado pela equipe Hellza!**\n\n` +
+                            `A thread foi arquivada e você já pode criar uma nova loja privada reagindo 🛒 na mensagem fixada oficial para futuros serviços!\n\n` +
+                            `✅ Você recebeu o cargo '${CARGO_CLIENTE_COMPROU}'.`
+                        );
+                    } catch (dmError) {
+                        console.error(`❌ Não foi possível enviar DM para ${clienteMember.user.tag}:`, dmError.message);
+                    }
+                }
+
+                // Finaliza thread no controle
+                finalizarThread(threadId, member.id);
+
+                // 3️⃣ RENOMEIA E ARQUIVA (por último)
+                const oldName = thread.name;
+                const newName = oldName.includes('finalizado') ? oldName : `✅-finalizado-${oldName.replace('🛒-loja-', '')}`;
+
+                await thread.setName(newName);
+                await thread.setArchived(true);
+
+                console.log(`✅ Thread finalizada por ${member.user.tag}: ${oldName} → ${newName}`);
+
+                // Notifica canal admin
+                const adminChannel = interaction.guild.channels.cache.find(c => 
+                    c.name.toLowerCase().includes('logs') || c.name.toLowerCase().includes('admin')
+                );
+                if (adminChannel && adminChannel.isTextBased()) {
+                    const clienteTag = clienteMember?.user.tag || 'Cliente não encontrado';
+                    await adminChannel.send(
+                        `✅ **SERVIÇO FINALIZADO!**\n\n` +
+                        `👑 **Admin:** ${member.user.tag}\n` +
+                        `👤 **Cliente:** ${clienteTag}\n` +
+                        `📄 **Thread:** ${newName}\n` +
+                        `🕐 **Horário:** ${new Date().toLocaleString('pt-BR')}`
+                    );
+                }
+
+            } catch (error) {
+                console.error(`❌ Erro durante finalização por ${member.user.tag}:`, error.message);
+
+                // Tentar enviar erro no canal da thread (se ainda não arquivada)
+                try {
+                    await thread.send(`❌ **Erro durante finalização:** ${error.message}`);
+                } catch (sendError) {
+                    console.error(`❌ Não foi possível enviar erro na thread:`, sendError.message);
+                }
             }
         }
 
     } catch (error) {
         console.error(`❌ Erro na interação ${interaction.customId} por ${user.tag}:`, error);
-        if (interaction.deferred || interaction.replied) {
-            await interaction.followUp({ content: 'Ocorreu um erro ao processar sua solicitação.', ephemeral: true });
-        } else {
-            await interaction.reply({ content: 'Ocorreu um erro ao processar sua solicitação.', ephemeral: true });
+        try {
+            if (interaction.deferred || interaction.replied) {
+                await interaction.followUp({ content: 'Ocorreu um erro ao processar sua solicitação.', ephemeral: true });
+            } else {
+                await interaction.reply({ content: 'Ocorreu um erro ao processar sua solicitação.', ephemeral: true });
+            }
+        } catch (replyError) {
+            console.error(`❌ Erro ao responder interação:`, replyError.message);
         }
     }
 });
