@@ -1,0 +1,26 @@
+{
+  "zenless-zone-zero": {
+    "id": "zenless-zone-zero",
+    "nome": "Zenless Zone Zero",
+    "emoji": "⚡",
+    "descricao": "Serviços para Zenless Zone Zero - Orpheus/Evellyn",
+    "ativo": true,
+    "ordem": 1
+  },
+  "honkai-star-rail": {
+    "id": "honkai-star-rail",
+    "nome": "Honkai Star Rail",
+    "emoji": "🌟",
+    "descricao": "Serviços para Honkai Star Rail",
+    "ativo": true,
+    "ordem": 2
+  },
+  "genshin-impact": {
+    "id": "genshin-impact",
+    "nome": "Genshin Impact",
+    "emoji": "🗡️",
+    "descricao": "Serviços para Genshin Impact",
+    "ativo": true,
+    "ordem": 3
+  }
+}

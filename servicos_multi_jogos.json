@@ -1,0 +1,79 @@
+{
+  "zzz-missao-completa": {
+    "id": "zzz-missao-completa",
+    "jogo_id": "zenless-zone-zero",
+    "nome": "Missão Principal COMPLETA",
+    "descricao": "Temp. 1 e 2 COMPLETA [INCLUSO VERSÃO 2.2]",
+    "preco": 90.00,
+    "tempo": "1-2 dias",
+    "emoji": "⭐",
+    "destaque": true,
+    "ordem": 1
+  },
+  "zzz-todas-historias": {
+    "id": "zzz-todas-historias",
+    "jogo_id": "zenless-zone-zero",
+    "nome": "TODAS Histórias de Agentes",
+    "descricao": "TODAS as histórias de Agentes [14 Histórias completas]",
+    "preco": 76.00,
+    "tempo": "1-3 dias",
+    "emoji": "👥",
+    "destaque": true,
+    "ordem": 2
+  },
+  "zzz-farm-mensal": {
+    "id": "zzz-farm-mensal",
+    "jogo_id": "zenless-zone-zero",
+    "nome": "Farm Mensal",
+    "descricao": "FARM MENSAL - Cuidado da conta",
+    "preco": 62.00,
+    "tempo": "30 dias",
+    "emoji": "📆",
+    "destaque": true,
+    "ordem": 3
+  },
+  "hsr-historia-principal": {
+    "id": "hsr-historia-principal",
+    "jogo_id": "honkai-star-rail",
+    "nome": "História Principal Completa",
+    "descricao": "História principal completa de Honkai Star Rail",
+    "preco": 85.00,
+    "tempo": "1-2 dias",
+    "emoji": "📖",
+    "destaque": true,
+    "ordem": 1
+  },
+  "hsr-farm-reliquia": {
+    "id": "hsr-farm-reliquia",
+    "jogo_id": "honkai-star-rail",
+    "nome": "Farm de Relíquias",
+    "descricao": "Farm completo de relíquias de alta qualidade",
+    "preco": 45.00,
+    "tempo": "3-5 horas",
+    "emoji": "💎",
+    "destaque": true,
+    "ordem": 2
+  },
+  "gi-historia-archon": {
+    "id": "gi-historia-archon",
+    "jogo_id": "genshin-impact",
+    "nome": "História dos Archons Completa",
+    "descricao": "Todas as histórias dos Archons disponíveis",
+    "preco": 95.00,
+    "tempo": "2-3 dias",
+    "emoji": "👑",
+    "destaque": true,
+    "ordem": 1
+  },
+  "gi-farm-artefato": {
+    "id": "gi-farm-artefato",
+    "jogo_id": "genshin-impact",
+    "nome": "Farm de Artefatos",
+    "descricao": "Farm completo de artefatos 5 estrelas",
+    "preco": 50.00,
+    "tempo": "4-6 horas",
+    "emoji": "⚱️",
+    "destaque": true,
+    "ordem": 2
+  }
+}
