@@ -760,7 +760,7 @@ client.once(Events.ClientReady, async () => {
 });
 
 // ================================================
-// 🛒 EVENT: REAÇÕES COM CONTROLE ANTI-DUPLICAÇÃO
+// 🛒 EVENT: REAÇÕES COM CONTROLE ANTI-DUPLICAÇÃO E PERMISSÕES THREAD
 // ================================================
 
 client.on(Events.MessageReactionAdd, async (reaction, user) => {
@@ -865,19 +865,37 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
         console.log(`🔢 Criando thread ${numeroThread} para ${user.tag}: ${nomeThread}`);
 
         try {
+            // ✅ CORREÇÃO PRINCIPAL: THREAD PÚBLICA COM CONTROLE DE PERMISSÕES
             const thread = await reaction.message.channel.threads.create({
                 name: nomeThread,
-                type: ChannelType.PrivateThread,
+                type: ChannelType.PublicThread, // ← MUDANÇA AQUI!
                 autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
                 reason: `Loja ${numeroThread} para ${user.tag}`,
                 invitable: false
             });
 
+            // 🔒 NEGA ACESSO PARA @everyone
+            await thread.permissionOverwrites.edit(thread.guild.roles.everyone, {
+                ViewChannel: false,
+                SendMessages: false,
+                ReadMessageHistory: false
+            });
+
+            // 🔑 PERMITE APENAS O CLIENTE
+            await thread.permissionOverwrites.edit(user.id, {
+                ViewChannel: true,
+                SendMessages: true,
+                AttachFiles: true,
+                ReadMessageHistory: true,
+                UseExternalEmojis: true,
+                AddReactions: true
+            });
+
             marcarThreadAtiva(user.id, thread.id);
             await thread.members.add(user.id);
-            console.log(`👤 ${user.tag} adicionado à thread ${numeroThread}`);
+            console.log(`👤 ${user.tag} adicionado à thread ${numeroThread} com permissões completas`);
 
-            // ✅ ADICIONA TODOS OS TIPOS DE ADMINS
+            // ✅ ADICIONA ADMINS HELLZA COM PERMISSÕES
             let hellzaAdmins = 0;
             let suporteAdmins = 0;
 
@@ -894,6 +912,16 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
             );
 
             if (hellzaRole) {
+                // Dá permissão para o cargo Hellza
+                await thread.permissionOverwrites.edit(hellzaRole, {
+                    ViewChannel: true,
+                    SendMessages: true,
+                    AttachFiles: true,
+                    ReadMessageHistory: true,
+                    ManageMessages: true,
+                    ManageThreads: true
+                });
+
                 const hellzaMembers = guild.members.cache.filter(member => 
                     member.roles.cache.has(hellzaRole.id) && !member.user.bot
                 );
@@ -911,27 +939,33 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
             }
 
             // ✅ ADICIONA CARGOS DE SUPORTE
-            const allMembers = guild.members.cache;
-            for (const [memberId, supportMember] of allMembers) {
-                if (supportMember.user.bot) continue;
-                if (supportMember.id === user.id) continue; // Não adiciona o próprio cliente
-
-                // Verifica se tem algum cargo de suporte
-                const temCargoSuporte = supportMember.roles.cache.some(role =>
-                    CARGOS_SUPORTE.some(cargo => role.name.toLowerCase().includes(cargo.toLowerCase()))
+            for (const cargoNome of CARGOS_SUPORTE) {
+                const cargoSuporte = guild.roles.cache.find(role =>
+                    role.name.toLowerCase().includes(cargoNome.toLowerCase())
                 );
 
-                if (temCargoSuporte && !supportMember.roles.cache.has(hellzaRole?.id)) {
-                    try {
-                        await thread.members.add(supportMember.id);
-                        const cargoEncontrado = supportMember.roles.cache.find(role =>
-                            CARGOS_SUPORTE.some(cargo => role.name.toLowerCase().includes(cargo.toLowerCase()))
-                        );
-                        console.log(`👥 Suporte ${supportMember.user.tag} adicionado (cargo: ${cargoEncontrado?.name || 'desconhecido'})`);
-                        suporteAdmins++;
-                        await new Promise(resolve => setTimeout(resolve, 300));
-                    } catch (error) {
-                        console.error(`❌ Erro ao adicionar suporte ${supportMember.user.tag}:`, error.message);
+                if (cargoSuporte && cargoSuporte.id !== hellzaRole?.id) {
+                    // Dá permissão para o cargo de suporte
+                    await thread.permissionOverwrites.edit(cargoSuporte, {
+                        ViewChannel: true,
+                        SendMessages: true,
+                        AttachFiles: true,
+                        ReadMessageHistory: true
+                    });
+
+                    const suporteMembers = guild.members.cache.filter(member => 
+                        member.roles.cache.has(cargoSuporte.id) && !member.user.bot
+                    );
+
+                    for (const [memberId, supportMember] of suporteMembers) {
+                        try {
+                            await thread.members.add(supportMember.id);
+                            console.log(`👥 Suporte ${supportMember.user.tag} adicionado (cargo: ${cargoSuporte.name})`);
+                            suporteAdmins++;
+                            await new Promise(resolve => setTimeout(resolve, 300));
+                        } catch (error) {
+                            console.error(`❌ Erro ao adicionar suporte ${supportMember.user.tag}:`, error.message);
+                        }
                     }
                 }
             }
@@ -942,7 +976,7 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
             await new Promise(resolve => setTimeout(resolve, 2000));
 
             const welcomeEmbed = new EmbedBuilder()
-                .setTitle(`🎉 Loja Privada Única #${numeroThread} - ${user.displayName}`)
+                .setTitle(`🎉 Loja Privada Exclusiva #${numeroThread} - ${user.displayName}`)
                 .setDescription(
                     `**Bem-vindo à sua loja privada exclusiva!** 🛒✨\n\n` +
                     `**🔢 Thread Número:** ${numeroThread}\n` +
@@ -956,7 +990,12 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
                     '• Controle Hellza de finalização\n' +
                     '• Sistema de quantidade avançado\n\n' +
                     '**🛡️ Conversa privada e protegida**\n' +
-                    'Thread única com controle total da administração\n\n' +
+                    'Thread exclusiva com controle total da administração\n\n' +
+                    '**💬 AGORA VOCÊ PODE:**\n' +
+                    '✅ Enviar mensagens de texto\n' +
+                    '✅ Enviar comprovantes PIX (imagens)\n' +
+                    '✅ Tirar dúvidas com a equipe\n' +
+                    '✅ Usar todos os botões e menus\n\n' +
                     '**⚠️ IMPORTANTE:**\n' +
                     '• NÃO usamos hack/cheats - Serviços legítimos\n' +
                     '• Aguarde finalização Hellza para nova thread\n' +
@@ -964,7 +1003,7 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
                 )
                 .setColor(0x00AE86)
                 .setThumbnail(user.displayAvatarURL())
-                .setFooter({ text: `Sistema Único v2.2 • Thread ${numeroThread} • Controle Hellza • Anti-Duplicação` })
+                .setFooter({ text: `Sistema Único v2.2 • Thread ${numeroThread} • Controle Hellza • Cliente pode falar!` })
                 .setTimestamp();
 
             const dropdown = criarDropdownServicos();
@@ -978,14 +1017,15 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
                 components: [dropdown, buttons]
             });
 
-            console.log(`🛒 Loja ${numeroThread} aberta para ${user.tag} com ${totalAdmins} admins`);
+            console.log(`🛒 Loja ${numeroThread} aberta para ${user.tag} com ${totalAdmins} admins e permissões completas`);
             await reaction.users.remove(user.id);
 
             const confirmMsg = await reaction.message.channel.send(
-                `✅ ${user}, loja privada única **#${numeroThread}** criada! 🛒🔒\n` +
-                `👑 **${hellzaAdmins} Hellza** + **${suporteAdmins} suporte** = **${totalAdmins} total** na equipe!`
+                `✅ ${user}, loja privada exclusiva **#${numeroThread}** criada! 🛒🔒\n` +
+                `👑 **${hellzaAdmins} Hellza** + **${suporteAdmins} suporte** = **${totalAdmins} total** na equipe!\n` +
+                `💬 **Agora você pode conversar normalmente na thread!**`
             );
-            setTimeout(() => confirmMsg.delete().catch(() => {}), 12000);
+            setTimeout(() => confirmMsg.delete().catch(() => {}), 15000);
 
         } catch (error) {
             console.error(`❌ Erro crítico ao criar thread para ${user.tag}:`, error);
@@ -1230,7 +1270,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 }
             }
 
-            await thread.send(`✅ ${user}, seu pedido foi finalizado! A equipe Hellza já foi notificada e aguarda seu comprovante de PIX.\n\n🚨 **IMPORTANTE:** O botão vermelho acima é **exclusivo para administradores**. Apenas admins podem finalizar o serviço.`);
+            await thread.send(`✅ ${user}, seu pedido foi finalizado! A equipe Hellza já foi notificada e aguarda seu comprovante de PIX.\n\n🚨 **IMPORTANTE:** O botão vermelho acima é **exclusivo para administradores**. Apenas admins podem finalizar o serviço.\n\n💬 **Agora você pode:** Enviar seu comprovante PIX, tirar dúvidas, ou conversar normalmente aqui na thread!`);
 
             // Envia notificação para os admins
             const adminChannel = interaction.guild.channels.cache.find(c => c.name.toLowerCase().includes('logs') || c.name.toLowerCase().includes('admin'));
